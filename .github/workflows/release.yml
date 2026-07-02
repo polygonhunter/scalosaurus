@@ -1,20 +1,22 @@
 name: Release Obsidian plugin
 
+# Manually triggered: builds the plugin and creates (or refreshes) the
+# GitHub release whose tag matches manifest.json's version, with the
+# main.js / manifest.json / styles.css assets Obsidian needs.
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out the released tag
+      - name: Check out main
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: main
 
       - name: Use Node.js
         uses: actions/setup-node@v4
@@ -26,9 +28,17 @@ jobs:
           npm ci
           npm run build
 
-      - name: Attach plugin files to the release
+      - name: Create or refresh the release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.release.tag_name }}
         run: |
-          gh release upload "$TAG" main.js manifest.json styles.css --clobber
+          VERSION=$(node -p "require('./manifest.json').version")
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release upload "$VERSION" main.js manifest.json styles.css --clobber
+          else
+            gh release create "$VERSION" \
+              --target main \
+              --title "$VERSION" \
+              --notes "Scalosaurus $VERSION" \
+              main.js manifest.json styles.css
+          fi
