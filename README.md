@@ -1,44 +1,46 @@
-# Scalosaurus
+<div align="center">
+  <img src="icons/scalosaurus.svg" alt="Scalosaurus" width="112" height="112">
+  <h1>Scalosaurus</h1>
+  <p><b>Resize embedded images the way you'd expect — by dragging them.</b></p>
+</div>
 
-Resize embedded images directly in the editor — with drag handles, an
-aspect-ratio lock, snap-to-column-width, and automatic write-back of the
-resulting size into the wikilink (`![[image.png|420]]`). Sister plugin of
-Linkosaurus.
+Scalosaurus puts real resize handles on your embedded images, right inside the
+editor. Grab a corner, drag to the size you want, and the new dimensions are
+written straight back into the wikilink — no more typing `|300` by hand and
+eyeballing the result. Drift near your note's text column and the image snaps to
+full width, so the size that matters most is one confident drag away.
 
-## Features
+Sister plugin of **Linkosaurus**. Works in both Live Preview and Reading Mode,
+and only ever touches internal `![[image.png]]` embeds.
 
-- **Drag handles** on hover or tap of any embedded vault image
-  (`![[image.png]]`), in **Live Preview and Reading Mode**.
-- **Aspect-ratio lock** by default: proportional scaling writes `|W` only
-  (Obsidian derives the height). Hold **Shift** (configurable) — even
-  mid-drag — to resize freely; that writes `|WxH`.
-- **Snap to column width**: near the text column's edge the drag snaps
-  (with a visible guide line) and writes the responsive token
-  `![[image.png|100%]]`, which this plugin renders at full column width —
-  it keeps tracking the column when the window, theme, or readable line
-  width changes. Snapping has hysteresis, so the edge doesn't jitter.
-- **Safe write-back**: the document is written exactly once, on release —
-  a single undo step, no mid-drag flicker. Targeting is position-based
-  (never filename search), so the same image embedded twice in one note
-  resizes independently. If the note changed under the drag, Scalosaurus
-  aborts with a notice rather than guessing.
-- **Escape** cancels a drag; **double-click** a handle to remove the size.
+## Highlights
 
-## Notes & caveats
+- **Drag to resize, wherever you edit.** Handles appear on hover or tap, in both
+  Live Preview and Reading Mode.
+- **Proportions stay intact.** A locked aspect ratio writes a clean `|width` and
+  lets Obsidian keep the height; hold **Shift** — even mid-drag — to size freely
+  as `|width x height`.
+- **Magnetic snap to your column.** Near the text-column edge the drag snaps
+  (with a guide line) and writes a responsive `|100%` token that keeps tracking
+  the column as the window, theme, or line width changes.
+- **Writes once, cleanly.** The link updates on release: a single undo step, no
+  flicker, and it targets the exact image you dragged — never a filename guess —
+  so the same image embedded twice resizes independently.
+- **Stays out of your way.** Escape cancels a drag; double-click a handle to
+  clear the size and reset.
 
-- Only vault wikilink embeds (`![[...]]`) are handled — not
-  `![](url)`-style or remote images.
-- The responsive `|100%` (or `|fit`) token is a Scalosaurus convention.
-  Without the plugin, Obsidian shows such images at natural size (the token
-  lands in the alt text). Caption plugins may render it as a caption. If
-  either bothers you, set **Snapped size format** to *Fixed pixels*.
-- Images transcluded via another note (`![[Other note]]`) are deliberately
-  left alone — their `![[...]]` token lives in that other file.
-- Obsidian 1.12+ ships a native corner-drag in Live Preview. Scalosaurus
-  handles take precedence where they appear; see `docs/findings.md` for the
-  remaining coexistence work.
-- In Reading Mode, edits go through the file atomically (or through an open
-  source-mode editor of the same file, keeping them in its undo history).
+## Good to know
+
+- Only vault wikilink embeds (`![[...]]`) are handled — not `![](url)` or remote
+  images.
+- The responsive `|100%` (or `|fit`) token is a Scalosaurus convention. Without
+  the plugin, Obsidian shows the image at its natural size, and some caption
+  plugins render the token as a caption. Prefer fixed pixels? Switch **Snapped
+  size format** in settings.
+- Transcluded images (from `![[Other note]]`) are left alone — their link lives
+  in that other file.
+- On Obsidian 1.12+, the built-in corner-drag and Scalosaurus coexist; the
+  plugin's handles take precedence where they appear.
 
 ## Development
 
@@ -50,6 +52,6 @@ npm run build  # typecheck + production build (main.js at repo root)
 ```
 
 Open `test-vault/` in Obsidian (with the community plugin
-[hot-reload](https://github.com/pjeby/hot-reload) for live reloading). The
-vault contains demo notes for duplicates, callouts/tables, transclusions and
-edge cases; `docs/findings.md` tracks the empirical M0 verification gates.
+[hot-reload](https://github.com/pjeby/hot-reload) for live reloading). It has
+demo notes for duplicates, callouts/tables, transclusions and edge cases;
+`docs/findings.md` tracks the empirical M0 verification gates.
