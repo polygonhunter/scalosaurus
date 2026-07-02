@@ -1,9 +1,8 @@
 name: Release Obsidian plugin
 
 on:
-  push:
-    tags:
-      - "*"
+  release:
+    types: [published]
 
 permissions:
   contents: write
@@ -12,7 +11,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out the released tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
 
       - name: Use Node.js
         uses: actions/setup-node@v4
@@ -24,12 +26,9 @@ jobs:
           npm ci
           npm run build
 
-      - name: Create draft release with plugin assets
+      - name: Attach plugin files to the release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
         run: |
-          tag="${GITHUB_REF#refs/tags/}"
-          gh release create "$tag" \
-            --title="$tag" \
-            --draft \
-            main.js manifest.json styles.css
+          gh release upload "$TAG" main.js manifest.json styles.css --clobber
