@@ -10,5 +10,8 @@ test-vault/.obsidian/plugins/scalosaurus/
 test-vault/.obsidian/workspace.json
 test-vault/.obsidian/workspace-mobile.json
 
+# generated icon preview (regenerated from the SVGs)
+icons/preview.html
+
 # misc
 .DS_Store

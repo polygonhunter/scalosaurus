@@ -1,0 +1,71 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Linkosaurus">
+  <defs>
+    <linearGradient id="lk-tile" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7b6cff"/>
+      <stop offset="1" stop-color="#5b3fd6"/>
+    </linearGradient>
+    <linearGradient id="lk-sheen" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- squircle tile -->
+  <rect x="16" y="16" width="480" height="480" rx="118" fill="url(#lk-tile)"/>
+  <rect x="16" y="16" width="480" height="480" rx="118" fill="url(#lk-sheen)"/>
+
+  <!-- ground shadow -->
+  <ellipse cx="256" cy="392" rx="150" ry="20" fill="#000000" opacity="0.14"/>
+
+  <!-- sauropod (long-neck) silhouette, white -->
+  <g fill="#ffffff">
+    <!-- body -->
+    <path d="M150 300
+             C150 250 196 224 252 224
+             C316 224 366 250 366 300
+             C366 336 336 356 300 360
+             L200 360
+             C168 356 150 332 150 300 Z"/>
+    <!-- neck sweeping up to the head (top-right) -->
+    <path d="M330 262
+             C330 210 338 168 360 140
+             C374 122 396 112 414 118
+             C430 124 434 142 424 156
+             C408 178 400 210 398 250
+             C396 280 372 292 352 288
+             C338 285 330 276 330 262 Z"/>
+    <!-- head -->
+    <path d="M402 108
+             C424 100 452 106 462 124
+             C468 135 462 148 449 150
+             L410 152
+             C396 150 390 136 394 124
+             C396 116 398 111 402 108 Z"/>
+    <!-- tail sweeping down-left -->
+    <path d="M172 300
+             C132 300 96 316 70 344
+             C58 357 62 376 80 378
+             C96 380 108 372 120 360
+             C140 340 168 330 190 332
+             C210 334 214 312 200 302
+             C192 297 182 300 172 300 Z"/>
+    <!-- legs -->
+    <rect x="196" y="344" width="34" height="66" rx="17"/>
+    <rect x="286" y="344" width="34" height="66" rx="17"/>
+    <rect x="240" y="350" width="30" height="60" rx="15" opacity="0.85"/>
+  </g>
+
+  <!-- eye -->
+  <circle cx="430" cy="128" r="7" fill="#5b3fd6"/>
+
+  <!-- auto-link motif: connected graph nodes riding along the back -->
+  <g>
+    <path d="M196 240 L246 214 L300 226 L356 196" stroke="#38e8d0" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <g fill="#38e8d0" stroke="#0e6f63" stroke-width="3">
+      <circle cx="196" cy="240" r="15"/>
+      <circle cx="246" cy="214" r="15"/>
+      <circle cx="300" cy="226" r="15"/>
+      <circle cx="356" cy="196" r="15"/>
+    </g>
+  </g>
+</svg>
