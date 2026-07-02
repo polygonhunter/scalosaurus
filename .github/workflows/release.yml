@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -27,6 +29,13 @@ jobs:
         run: |
           npm ci
           npm run build
+
+      - name: Attest build provenance for the release assets
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: |
+            main.js
+            styles.css
 
       - name: Create or refresh the release
         env:

@@ -23,7 +23,7 @@ export default class ScalosaurusPlugin extends Plugin {
 		this.reading = new ReadingModeController(this.app, getSettings);
 		this.registerMarkdownPostProcessor(this.reading.postProcessor);
 
-		this.wireDocument(document);
+		this.wireDocument(activeDocument);
 		// window-open only fires for FUTURE popouts — popout windows that
 		// are already open when the plugin loads must be wired explicitly.
 		this.app.workspace.onLayoutReady(() => {
@@ -67,7 +67,8 @@ export default class ScalosaurusPlugin extends Plugin {
 	}
 
 	async loadSettings(): Promise<void> {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		const data = (await this.loadData()) as Partial<ScalosaurusSettings> | null;
+		this.settings = { ...DEFAULT_SETTINGS, ...(data ?? {}) };
 	}
 
 	async saveSettings(): Promise<void> {

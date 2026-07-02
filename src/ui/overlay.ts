@@ -99,7 +99,7 @@ export class ResizeOverlay {
 		private readonly callbacks: OverlayCallbacks,
 	) {
 		this.doc = embedEl.ownerDocument;
-		this.win = this.doc.defaultView ?? window;
+		this.win = this.doc.defaultView ?? activeWindow;
 
 		this.root = this.doc.createElement("div");
 		this.root.className = "scalosaurus-overlay";

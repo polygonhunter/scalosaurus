@@ -78,7 +78,7 @@ export class EmbedHoverController {
 		this.cleanups.push(() => this.adapter.doc.removeEventListener(type, handler));
 	}
 
-	get document(): Document {
+	get doc(): Document {
 		return this.adapter.doc;
 	}
 
@@ -105,7 +105,9 @@ export class EmbedHoverController {
 		const callbacks: OverlayCallbacks = {
 			onDragStart: () => this.adapter.beginDrag(hit.embedEl, hit.img),
 			onCommit: (size) => this.adapter.commit(hit.embedEl, hit.img, size),
-			onReset: () => this.adapter.commit(hit.embedEl, hit.img, { kind: "none" }),
+			onReset: () => {
+				void this.adapter.commit(hit.embedEl, hit.img, { kind: "none" });
+			},
 			onDetached: () => this.clear(),
 		};
 		this.overlay = new ResizeOverlay(hit.embedEl, hit.img, this.adapter.getOptions(), callbacks);

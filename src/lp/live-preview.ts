@@ -69,7 +69,7 @@ class LivePreviewResize implements PluginValue {
 		// NEW document without re-instantiating this ViewPlugin — rebuild
 		// the controller so its delegated listeners live on the right doc.
 		const doc = this.view.dom.ownerDocument;
-		if (doc !== this.controller.document) {
+		if (doc !== this.controller.doc) {
 			this.controller.destroy();
 			this.controller = this.buildController(doc);
 		}

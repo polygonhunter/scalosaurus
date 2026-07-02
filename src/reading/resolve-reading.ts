@@ -67,7 +67,5 @@ export function locateEmbedToken(
  * caller must abort instead of guessing.
  */
 export function countEmbedTokens(lines: readonly string[], src: string): number {
-	let count = 0;
-	for (const _ of matchingTokens(lines, src)) count++;
-	return count;
+	return [...matchingTokens(lines, src)].length;
 }

@@ -115,7 +115,6 @@ export class ScalosaurusSettingTab extends PluginSettingTab {
 				slider
 					.setLimits(4, 32, 1)
 					.setValue(settings.snapInThreshold)
-					.setDynamicTooltip()
 					.onChange(async (value) => {
 						settings.snapInThreshold = value;
 						await save();
@@ -131,7 +130,6 @@ export class ScalosaurusSettingTab extends PluginSettingTab {
 				slider
 					.setLimits(8, 48, 1)
 					.setValue(settings.snapOutThreshold)
-					.setDynamicTooltip()
 					.onChange(async (value) => {
 						settings.snapOutThreshold = value;
 						await save();
@@ -163,7 +161,6 @@ export class ScalosaurusSettingTab extends PluginSettingTab {
 				slider
 					.setLimits(16, 128, 1)
 					.setValue(settings.minWidth)
-					.setDynamicTooltip()
 					.onChange(async (value) => {
 						settings.minWidth = value;
 						await save();
