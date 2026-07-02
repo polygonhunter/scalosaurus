@@ -1,72 +1,53 @@
 <svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Scalosaurus">
   <defs>
     <linearGradient id="sc-tile" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#7b6cff"/>
-      <stop offset="1" stop-color="#5b3fd6"/>
+      <stop offset="0" stop-color="#19cbb6"/>
+      <stop offset="1" stop-color="#0a9184"/>
     </linearGradient>
     <linearGradient id="sc-sheen" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.20"/>
       <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
   </defs>
 
-  <!-- squircle tile -->
   <rect x="16" y="16" width="480" height="480" rx="118" fill="url(#sc-tile)"/>
   <rect x="16" y="16" width="480" height="480" rx="118" fill="url(#sc-sheen)"/>
 
-  <!-- ground shadow -->
-  <ellipse cx="256" cy="392" rx="150" ry="20" fill="#000000" opacity="0.14"/>
+  <ellipse cx="256" cy="398" rx="140" ry="18" fill="#000000" opacity="0.13"/>
 
-  <!-- stegosaurus silhouette, white -->
+  <!-- growing plates = SCALE (amber), behind the body -->
+  <g fill="#ffb020" stroke="#7a4a00" stroke-width="3" stroke-linejoin="round">
+    <path d="M172 276 L188 236 L204 276 Z"/>
+    <path d="M212 276 L232 222 L252 276 Z"/>
+    <path d="M258 276 L282 206 L306 276 Z"/>
+    <path d="M312 276 L340 188 L368 276 Z"/>
+  </g>
+
+  <!-- minimal geometric stegosaurus (white) -->
   <g fill="#ffffff">
-    <!-- body: arched back -->
-    <path d="M120 328
-             C120 268 168 232 236 232
-             C300 232 344 258 360 300
-             C368 320 356 344 332 350
-             L176 360
-             C142 358 120 344 120 328 Z"/>
-    <!-- head (low, front-right) -->
-    <path d="M352 300
-             C372 292 398 296 410 312
-             C418 323 412 338 398 340
-             L360 342
-             C346 340 340 322 346 310
-             C348 305 350 302 352 300 Z"/>
-    <!-- tail (back-left) with thagomizer spikes -->
-    <path d="M128 320
-             C96 316 66 322 44 336
-             C33 343 36 360 52 361
-             C66 362 78 356 92 350
-             C110 342 128 342 142 346 Z"/>
+    <!-- tail -->
+    <path d="M150 300 L92 286 L118 322 Z"/>
+    <!-- body capsule -->
+    <rect x="140" y="270" width="244" height="92" rx="46"/>
+    <!-- head -->
+    <circle cx="392" cy="306" r="42"/>
     <!-- legs -->
-    <rect x="180" y="342" width="34" height="66" rx="17"/>
-    <rect x="286" y="336" width="32" height="72" rx="16"/>
-    <rect x="228" y="348" width="30" height="60" rx="15" opacity="0.85"/>
+    <rect x="186" y="348" width="40" height="62" rx="20"/>
+    <rect x="300" y="348" width="40" height="62" rx="20"/>
   </g>
 
-  <!-- tail spikes -->
-  <g fill="#ffffff">
-    <path d="M60 330 l-16 -18 l4 22 Z"/>
-    <path d="M84 332 l-12 -20 l0 24 Z"/>
-  </g>
-
-  <!-- back plates growing in size = SCALE, in amber -->
-  <g fill="#ffb020" stroke="#7a4f00" stroke-width="3">
-    <path d="M168 236 q10 -18 20 0 Z"/>
-    <path d="M206 220 q13 -26 26 0 Z"/>
-    <path d="M250 206 q16 -34 32 0 Z"/>
-    <path d="M300 196 q19 -44 38 0 Z"/>
+  <!-- tail tip spikes (amber) -->
+  <g fill="#ffb020" stroke="#7a4a00" stroke-width="3" stroke-linejoin="round">
+    <path d="M92 286 L70 276 L82 296 Z"/>
+    <path d="M104 296 L86 300 L98 312 Z"/>
   </g>
 
   <!-- eye -->
-  <circle cx="392" cy="316" r="6.5" fill="#5b3fd6"/>
+  <circle cx="406" cy="300" r="7" fill="#0a8578"/>
 
-  <!-- resize motif: corner handles + diagonal double arrow -->
-  <g stroke="#38e8d0" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.95">
-    <!-- diagonal double-headed arrow (bottom-left <-> top-right) -->
-    <path d="M150 388 L214 324"/>
-    <path d="M150 388 l32 0 M150 388 l0 -32"/>
-    <path d="M214 324 l-32 0 M214 324 l0 32"/>
+  <!-- resize handles framing the corners = drag to resize (amber) -->
+  <g stroke="#ffe0a3" stroke-width="11" stroke-linecap="round" fill="none" opacity="0.9">
+    <path d="M120 150 h34 M120 150 v34"/>
+    <path d="M392 150 h-34 M392 150 v34"/>
   </g>
 </svg>
