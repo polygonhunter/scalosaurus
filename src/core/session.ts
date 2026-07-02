@@ -93,8 +93,11 @@ export function reduceDrag(cfg: DragConfig, prev: DragState, input: DragInput): 
 	let snapped = prev.snapped;
 	const col = cfg.columnWidth;
 	if (cfg.snap.enabled && col !== null) {
+		// The settings UI allows out < in; clamp so the snap-in and snap-out
+		// zones can never overlap (which would oscillate every pointermove).
+		const outThreshold = Math.max(cfg.snap.outThreshold, cfg.snap.inThreshold);
 		if (snapped) {
-			if (proposedW < col - cfg.snap.outThreshold) snapped = false;
+			if (proposedW < col - outThreshold) snapped = false;
 		} else {
 			if (proposedW >= col - cfg.snap.inThreshold) snapped = true;
 		}

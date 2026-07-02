@@ -49,8 +49,16 @@ export interface HoverAdapter {
 	getOptions(): OverlayOptions;
 	/** Fail-fast target resolution at pointerdown. False aborts the drag. */
 	beginDrag(embedEl: HTMLElement, img: HTMLImageElement): boolean;
-	/** Write the size ({kind:'none'} = double-click reset). */
-	commit(embedEl: HTMLElement, img: HTMLImageElement, size: SizeSpec): void;
+	/**
+	 * Write the size ({kind:'none'} = double-click reset). Returns whether
+	 * the document was actually written (the overlay reverts its visual
+	 * feedback otherwise).
+	 */
+	commit(
+		embedEl: HTMLElement,
+		img: HTMLImageElement,
+		size: SizeSpec,
+	): boolean | Promise<boolean>;
 }
 
 export class EmbedHoverController {
@@ -70,8 +78,15 @@ export class EmbedHoverController {
 		this.cleanups.push(() => this.adapter.doc.removeEventListener(type, handler));
 	}
 
+	get document(): Document {
+		return this.adapter.doc;
+	}
+
 	private onPointerEvent(e: Event): void {
 		if (this.overlay?.isDragging) return;
+		// Stale overlay: the image was re-rendered under us — clear before
+		// its dead handles can swallow the event.
+		if (this.overlay && !this.overlay.imgConnected) this.clear();
 		const el = asElement(e.target);
 		// Pointer on our own handles/overlay: keep it.
 		if (el && this.overlay?.contains(el)) return;

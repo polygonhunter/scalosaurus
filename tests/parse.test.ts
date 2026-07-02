@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	findEmbedTokens,
 	lineLooksLikeTableRow,
+	maskNonRenderedText,
 	parseEmbed,
 	pathMatchesSrc,
 	serializeEmbed,
@@ -71,6 +72,16 @@ describe("parseEmbed", () => {
 		const parsed = parseEmbed("![[img.png|scaled to 100%]]");
 		expect(parsed?.segments).toEqual(["scaled to 100%"]);
 		expect(parsed?.size).toEqual({ kind: "none" });
+	});
+
+	it("does not consume spaced captions like '8 x 10' as a size", () => {
+		const parsed = parseEmbed("![[img.png|8 x 10]]");
+		expect(parsed?.segments).toEqual(["8 x 10"]);
+		expect(parsed?.size).toEqual({ kind: "none" });
+		// ...and a resize must keep the caption:
+		expect(withSize("![[img.png|8 x 10]]", { kind: "width", width: 300 })).toBe(
+			"![[img.png|8 x 10|300]]",
+		);
 	});
 
 	it("detects escaped pipes (table context)", () => {
@@ -157,5 +168,61 @@ describe("lineLooksLikeTableRow", () => {
 		expect(lineLooksLikeTableRow("  | a | b |")).toBe(true);
 		expect(lineLooksLikeTableRow("plain ![[x.png]]")).toBe(false);
 		expect(lineLooksLikeTableRow("|")).toBe(false);
+	});
+});
+
+describe("maskNonRenderedText", () => {
+	it("preserves line lengths and offsets", () => {
+		const lines = ["Type `![[a.png]]` then ![[a.png]]"];
+		const masked = maskNonRenderedText(lines);
+		expect(masked[0]).toHaveLength(lines[0]!.length);
+	});
+
+	it("masks inline code but keeps the real token findable at its offset", () => {
+		const line = "Type `![[a.png]]` to embed it: ![[a.png]]";
+		const masked = maskNonRenderedText([line])[0]!;
+		const tokens = findEmbedTokens(masked);
+		expect(tokens).toHaveLength(1);
+		expect(line.slice(tokens[0]!.start, tokens[0]!.end)).toBe("![[a.png]]");
+		expect(tokens[0]!.start).toBe(line.lastIndexOf("![[a.png]]"));
+	});
+
+	it("masks single-line %% comments", () => {
+		const line = "%%![[a.png|200]]%% real: ![[a.png|200]]";
+		const masked = maskNonRenderedText([line])[0]!;
+		expect(findEmbedTokens(masked)).toHaveLength(1);
+		expect(masked.indexOf("real:")).toBe(line.indexOf("real:"));
+	});
+
+	it("masks multi-line %% comments", () => {
+		const masked = maskNonRenderedText(["before %%", "![[a.png]]", "%% after ![[b.png]]"]);
+		expect(findEmbedTokens(masked[1]!)).toHaveLength(0);
+		expect(findEmbedTokens(masked[2]!)).toHaveLength(1);
+	});
+
+	it("masks fenced code blocks including indented fences", () => {
+		const masked = maskNonRenderedText([
+			"![[a.png]]",
+			"```md",
+			"![[a.png]]",
+			"```",
+			"  ~~~",
+			"![[a.png]]",
+			"  ~~~",
+			"![[a.png]]",
+		]);
+		const counts = masked.map((l) => findEmbedTokens(l).length);
+		expect(counts).toEqual([1, 0, 0, 0, 0, 0, 0, 1]);
+	});
+
+	it("masks HTML comments across lines", () => {
+		const masked = maskNonRenderedText(["a <!-- ![[a.png]]", "![[a.png]] --> ![[a.png]]"]);
+		expect(findEmbedTokens(masked[0]!)).toHaveLength(0);
+		expect(findEmbedTokens(masked[1]!)).toHaveLength(1);
+	});
+
+	it("does not mask regular text", () => {
+		const lines = ["plain ![[a.png|300]] text"];
+		expect(maskNonRenderedText(lines)).toEqual(lines);
 	});
 });

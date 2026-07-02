@@ -26,14 +26,18 @@ export function measureContainingBlock(embedEl: HTMLElement): ColumnMetrics | nu
 
 	const style = win.getComputedStyle(parent);
 	const rect = parent.getBoundingClientRect();
-	const paddingLeft = parseFloat(style.paddingLeft) || 0;
-	const paddingRight = parseFloat(style.paddingRight) || 0;
-	const width = rect.width - paddingLeft - paddingRight;
+	// getBoundingClientRect includes borders — subtract them along with the
+	// padding (callouts and blockquotes have borders) to get the content box.
+	const insetLeft =
+		(parseFloat(style.borderLeftWidth) || 0) + (parseFloat(style.paddingLeft) || 0);
+	const insetRight =
+		(parseFloat(style.borderRightWidth) || 0) + (parseFloat(style.paddingRight) || 0);
+	const width = rect.width - insetLeft - insetRight;
 	if (!(width > 0)) return null;
 
 	return {
 		width,
-		left: rect.left + paddingLeft,
-		right: rect.right - paddingRight,
+		left: rect.left + insetLeft,
+		right: rect.right - insetRight,
 	};
 }

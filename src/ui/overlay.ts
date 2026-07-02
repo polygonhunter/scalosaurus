@@ -43,8 +43,13 @@ export interface OverlayOptions {
 export interface OverlayCallbacks {
 	/** Fail-fast target resolution at pointerdown. False aborts the drag. */
 	onDragStart(): boolean;
-	/** Final size on pointerup (already mapped: sentinel / W / WxH). */
-	onCommit(size: SizeSpec): void;
+	/**
+	 * Final size on pointerup (already mapped: sentinel / W / WxH).
+	 * Returns whether the document was actually written — on false the
+	 * overlay restores the pre-drag inline styles, so the image never shows
+	 * a size that is not in the document (aborted or no-op commits).
+	 */
+	onCommit(size: SizeSpec): boolean | Promise<boolean>;
 	/** Double-click on a handle: remove the size param entirely. */
 	onReset(): void;
 	/** The image left the DOM (widget recycled) — owner should clear us. */
@@ -159,6 +164,11 @@ export class ResizeOverlay {
 		return this.drag !== null;
 	}
 
+	/** Stale-overlay guard for the owner: is the image still in the DOM? */
+	get imgConnected(): boolean {
+		return this.img.isConnected;
+	}
+
 	/** Is this node part of the overlay? (Owner keeps us alive on hover.) */
 	contains(node: Node): boolean {
 		return this.root.contains(node);
@@ -233,10 +243,16 @@ export class ResizeOverlay {
 	private startDrag(corner: Corner, e: PointerEvent): void {
 		if (this.drag || this.destroyed) return;
 		if (e.button !== 0) return;
+		// Stale overlay (image re-rendered under us): don't consume the
+		// event — let the click land where the user aimed, and disappear.
+		if (!this.img.isConnected) {
+			this.callbacks.onDetached();
+			return;
+		}
 		// Blocks Obsidian's native (>= 1.12) corner-drag from also starting.
 		e.preventDefault();
 		e.stopPropagation();
-		if (!this.img.isConnected || !this.callbacks.onDragStart()) return;
+		if (!this.callbacks.onDragStart()) return;
 
 		const rect = this.img.getBoundingClientRect();
 		if (!(rect.width > 0) || !(rect.height > 0)) return;
@@ -335,8 +351,21 @@ export class ResizeOverlay {
 			unlocked: drag.unlocked,
 			sentinelMode: this.options.sentinelMode,
 		});
-		// Inline styles stay on — see the class comment.
-		this.callbacks.onCommit(size);
+		// Inline styles stay on when the write succeeds — see the class
+		// comment. When nothing was written (abort or no-op), restore them:
+		// the image must not show a size that is not in the document.
+		const result = this.callbacks.onCommit(size);
+		if (result === false) {
+			this.restoreInlineStyles(drag);
+			this.reposition();
+		} else if (typeof (result as Promise<boolean>)?.then === "function") {
+			void (result as Promise<boolean>).then((wrote) => {
+				if (!wrote && !this.destroyed && this.img.isConnected) {
+					this.restoreInlineStyles(drag);
+					this.reposition();
+				}
+			});
+		}
 	}
 
 	private cancelDrag(): void {

@@ -30,12 +30,22 @@ export function resolveLpTarget(view: EditorView, embedEl: HTMLElement): LpTarge
 	if (pos < 0 || pos > view.state.doc.length) return null;
 
 	const line = view.state.doc.lineAt(pos);
-	for (const token of findEmbedTokens(line.text)) {
-		const from = line.from + token.start;
-		const to = line.from + token.end;
-		if (pos >= from && pos < to) {
-			return { from, to, text: token.text, lineText: line.text };
-		}
+	const tokens = findEmbedTokens(line.text).map((token) => ({
+		from: line.from + token.start,
+		to: line.from + token.end,
+		text: token.text,
+		lineText: line.text,
+	}));
+	// Two passes: strict containment first; then allow pos == to, which
+	// posAtDOM can report when the token is expanded (cursor on the line).
+	// The order keeps adjacent tokens (`![[a]]![[b]]`) unambiguous — the
+	// strict pass claims pos == b.from for b before the inclusive pass
+	// could hand it to a.
+	for (const t of tokens) {
+		if (pos >= t.from && pos < t.to) return t;
+	}
+	for (const t of tokens) {
+		if (pos >= t.from && pos <= t.to) return t;
 	}
 	return null;
 }

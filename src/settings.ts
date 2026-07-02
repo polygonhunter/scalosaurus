@@ -180,16 +180,9 @@ export class ScalosaurusSettingTab extends PluginSettingTab {
 				}),
 			);
 
-		new Setting(containerEl)
-			.setName("Suppress native resize UI")
-			.setDesc(
-				"Keep Obsidian's built-in corner-drag (1.12+) from competing with these handles.",
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(settings.suppressNative).onChange(async (value) => {
-					settings.suppressNative = value;
-					await save();
-				}),
-			);
+		// Note: `suppressNative` deliberately has no UI yet. The body class
+		// it toggles has no CSS rule until the native handle's selector is
+		// pinned (docs/findings.md, gate 2) — a visible toggle would be a
+		// no-op. Our handles already take precedence via stopPropagation.
 	}
 }

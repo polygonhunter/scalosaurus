@@ -24,6 +24,13 @@ export default class ScalosaurusPlugin extends Plugin {
 		this.registerMarkdownPostProcessor(this.reading.postProcessor);
 
 		this.wireDocument(document);
+		// window-open only fires for FUTURE popouts — popout windows that
+		// are already open when the plugin loads must be wired explicitly.
+		this.app.workspace.onLayoutReady(() => {
+			this.app.workspace.iterateAllLeaves((leaf) => {
+				this.wireDocument(leaf.view.containerEl.ownerDocument);
+			});
+		});
 		this.registerEvent(
 			this.app.workspace.on("window-open", (_workspaceWindow, win) => {
 				this.wireDocument(win.document);

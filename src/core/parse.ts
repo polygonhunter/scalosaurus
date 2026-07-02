@@ -59,7 +59,9 @@ export function findEmbedTokens(text: string): TokenMatch[] {
 
 function classifySegment(segment: string): SizeSpec | null {
 	const trimmed = segment.trim();
-	const wh = /^(\d+)\s*x\s*(\d+)$/.exec(trimmed);
+	// No spaces around the x — matches Obsidian's own syntax; a caption like
+	// "8 x 10" must stay a caption, not be consumed as a size.
+	const wh = /^(\d+)x(\d+)$/.exec(trimmed);
 	if (wh) {
 		return {
 			kind: "width-height",
@@ -159,4 +161,84 @@ export function pathMatchesSrc(parsed: ParsedEmbed, src: string): boolean {
 export function lineLooksLikeTableRow(lineText: string): boolean {
 	const trimmed = lineText.trim();
 	return trimmed.startsWith("|") && trimmed.length > 1;
+}
+
+const FENCE_RE = /^\s*(`{3,}|~{3,})/;
+
+/**
+ * Blank out (replace with spaces — offsets stay stable) the parts of the
+ * given source lines that Obsidian does NOT render as embeds: fenced code
+ * blocks, inline code spans, `%%...%%` comments and `<!-- -->` comments.
+ *
+ * Why: Reading Mode maps a dragged embed to its source token by counting
+ * same-target tokens; a token inside a code span or comment appears in the
+ * source but never renders, so counting the raw text would target — and
+ * silently rewrite — the wrong token. Scanning masked lines keeps the DOM
+ * count and the source count in step. This is an approximation, not a
+ * Markdown parser; the occurrence-count cross-check in the Reading Mode
+ * commit path turns any residual mismatch into a safe abort.
+ */
+export function maskNonRenderedText(lines: readonly string[]): string[] {
+	let inFence = false;
+	let inObsidianComment = false;
+	let inHtmlComment = false;
+
+	return lines.map((line) => {
+		if (inFence) {
+			if (FENCE_RE.test(line)) inFence = false;
+			return " ".repeat(line.length);
+		}
+		if (!inObsidianComment && !inHtmlComment && FENCE_RE.test(line)) {
+			inFence = true;
+			return " ".repeat(line.length);
+		}
+
+		const out = line.split("");
+		// Inline code is line-scoped here (approximation): the run length of
+		// the opening backticks must be matched to close.
+		let inlineCodeLen = 0;
+		let i = 0;
+		const mask = (count: number) => {
+			for (let k = 0; k < count; k++) out[i + k] = " ";
+			i += count;
+		};
+		const backtickRun = (): number => {
+			let run = 0;
+			while (line[i + run] === "`") run++;
+			return run;
+		};
+
+		while (i < line.length) {
+			if (inHtmlComment) {
+				if (line.startsWith("-->", i)) {
+					mask(3);
+					inHtmlComment = false;
+				} else mask(1);
+			} else if (inObsidianComment) {
+				if (line.startsWith("%%", i)) {
+					mask(2);
+					inObsidianComment = false;
+				} else mask(1);
+			} else if (inlineCodeLen > 0) {
+				const run = backtickRun();
+				if (run === inlineCodeLen) {
+					mask(run);
+					inlineCodeLen = 0;
+				} else mask(Math.max(run, 1));
+			} else if (line.startsWith("<!--", i)) {
+				mask(4);
+				inHtmlComment = true;
+			} else if (line.startsWith("%%", i)) {
+				mask(2);
+				inObsidianComment = true;
+			} else if (line[i] === "`") {
+				const run = backtickRun();
+				mask(run);
+				inlineCodeLen = run;
+			} else {
+				i++;
+			}
+		}
+		return out.join("");
+	});
 }

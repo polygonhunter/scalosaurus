@@ -9,11 +9,16 @@
  *
  * Targeting: the embed's index among same-`src` embeds within its section
  * element (DOM) selects the N-th matching token within the section's source
- * lines — duplicate-safe. `getSectionInfo` is probed fail-fast at
- * pointerdown and fetched FRESH at commit ("only call this function right
- * before you need this information"); it may be null (PDF export, popovers,
- * edited sections) — every null/mismatch aborts with a Notice, never a
- * guessed write.
+ * lines — duplicate-safe. The source side is scanned with non-rendered text
+ * masked out (code, comments), and three invariants guard every write:
+ *   1. getSectionInfo is probed fail-fast at pointerdown and fetched FRESH
+ *      at commit; null (PDF export, popovers, edited sections) aborts.
+ *   2. The buffer/disk lines of the section must equal the render-time
+ *      lines from `info.text` — stale line windows abort.
+ *   3. The masked source token count must equal the DOM embed count — if
+ *      the occurrence mapping cannot be trusted (markdown-syntax images,
+ *      masking approximation), abort instead of guessing.
+ * Every abort shows a Notice; a wrong-token write must be impossible.
  *
  * Write routing: prefer an open source-mode editor of the same file (keeps
  * the resize inside the editor's undo history); otherwise `Vault.process`
@@ -28,12 +33,13 @@ import {
 	type App,
 	type Editor,
 	type MarkdownPostProcessorContext,
+	type MarkdownSectionInformation,
 } from "obsidian";
 import { lineLooksLikeTableRow, parseEmbed, withSize, type SizeSpec } from "../core/parse";
 import { snapConfigFrom, type ScalosaurusSettings } from "../settings";
 import { EmbedHoverController } from "../ui/attach";
 import type { OverlayOptions } from "../ui/overlay";
-import { locateEmbedToken } from "./resolve-reading";
+import { countEmbedTokens, locateEmbedToken } from "./resolve-reading";
 
 const ABORT_NOTICE = "Scalosaurus: could not safely locate the image link — not written.";
 
@@ -77,9 +83,7 @@ export class ReadingModeController {
 					};
 				},
 				beginDrag: (embedEl) => this.beginDrag(embedEl),
-				commit: (embedEl, _img, size) => {
-					void this.commit(embedEl, size);
-				},
+				commit: (embedEl, _img, size) => this.commit(embedEl, size),
 			}),
 		);
 	}
@@ -103,57 +107,96 @@ export class ReadingModeController {
 		return null;
 	}
 
-	/** Fail-fast probe at pointerdown: abort before the user drags. */
-	private beginDrag(embedEl: HTMLElement): boolean {
-		const section = this.findSectionContext(embedEl);
-		if (!section) return false;
-		if (!embedEl.getAttribute("src")) return false;
-		return section.ctx.getSectionInfo(section.sectionEl) !== null;
+	/**
+	 * Rendered same-src embeds within the section, in DOM order — the DOM
+	 * side of the occurrence mapping. Trimmed comparison, matching how
+	 * pathMatchesSrc compares link targets on the source side.
+	 */
+	private sectionCandidates(section: SectionContext, src: string): HTMLElement[] {
+		return Array.from(
+			section.sectionEl.querySelectorAll<HTMLElement>(".internal-embed.image-embed"),
+		).filter(
+			(el) =>
+				!el.closest(".markdown-embed") &&
+				(el.getAttribute("src") ?? "").trim() === src.trim(),
+		);
+	}
+
+	/** Render-time section lines out of getSectionInfo's whole-file text. */
+	private sectionLinesFromInfo(info: MarkdownSectionInformation): string[] | null {
+		const lines = info.text.split("\n");
+		if (info.lineStart < 0 || info.lineEnd >= lines.length) return null;
+		return lines.slice(info.lineStart, info.lineEnd + 1);
 	}
 
 	/**
-	 * The embed's position among same-src siblings in the section DOM —
-	 * mirrors locateEmbedToken's counting over the section's source lines.
-	 * Counted at commit time, from the live DOM.
+	 * Fail-fast probe at pointerdown: abort before the user drags. Runs the
+	 * same occurrence/count invariants as the commit, against render-time
+	 * text — markdown-syntax images and untrustworthy sections never even
+	 * start a drag.
 	 */
-	private occurrenceIndex(section: SectionContext, embedEl: HTMLElement, src: string): number {
-		const candidates = Array.from(
-			section.sectionEl.querySelectorAll<HTMLElement>(".internal-embed.image-embed"),
-		).filter(
-			(el) => !el.closest(".markdown-embed") && el.getAttribute("src") === src,
-		);
-		return candidates.indexOf(embedEl);
+	private beginDrag(embedEl: HTMLElement): boolean {
+		const section = this.findSectionContext(embedEl);
+		if (!section) return false;
+		const src = embedEl.getAttribute("src");
+		if (!src) return false;
+		const info = section.ctx.getSectionInfo(section.sectionEl);
+		if (!info) return false;
+		const sectionLines = this.sectionLinesFromInfo(info);
+		if (!sectionLines) return false;
+		const candidates = this.sectionCandidates(section, src);
+		if (candidates.indexOf(embedEl) < 0) return false;
+		return countEmbedTokens(sectionLines, src) === candidates.length;
 	}
 
-	private async commit(embedEl: HTMLElement, size: SizeSpec): Promise<void> {
+	/** Returns true only when the document was actually written. */
+	private async commit(embedEl: HTMLElement, size: SizeSpec): Promise<boolean> {
 		const section = this.findSectionContext(embedEl);
 		const src = embedEl.getAttribute("src");
 		if (!section || !src) {
 			new Notice(ABORT_NOTICE);
-			return;
+			return false;
 		}
 		// Fresh section info at write time — line numbers must reflect any
 		// edits made while the drag was in flight.
 		const info = section.ctx.getSectionInfo(section.sectionEl);
 		if (!info) {
 			new Notice(ABORT_NOTICE);
-			return;
+			return false;
 		}
-		const occurrence = this.occurrenceIndex(section, embedEl, src);
+		const renderLines = this.sectionLinesFromInfo(info);
+		if (!renderLines) {
+			new Notice(ABORT_NOTICE);
+			return false;
+		}
+		const candidates = this.sectionCandidates(section, src);
+		const occurrence = candidates.indexOf(embedEl);
 		if (occurrence < 0) {
 			new Notice(ABORT_NOTICE);
-			return;
+			return false;
 		}
+		const domCount = candidates.length;
 
 		const file = this.app.vault.getAbstractFileByPath(section.ctx.sourcePath);
 		if (!(file instanceof TFile)) {
 			new Notice(ABORT_NOTICE);
-			return;
+			return false;
 		}
 
-		const apply = (lines: readonly string[]): { line: number; start: number; end: number; newToken: string } | null => {
+		const apply = (
+			lines: readonly string[],
+		): { line: number; start: number; end: number; newToken: string } | null => {
 			if (info.lineEnd >= lines.length) return null;
 			const sectionLines = lines.slice(info.lineStart, info.lineEnd + 1);
+			// Invariant 2: the text we edit must equal the text that was
+			// rendered — otherwise the line window is stale.
+			if (sectionLines.length !== renderLines.length) return null;
+			for (let i = 0; i < sectionLines.length; i++) {
+				if (sectionLines[i] !== renderLines[i]) return null;
+			}
+			// Invariant 3: source count must mirror the DOM count.
+			if (countEmbedTokens(sectionLines, src) !== domCount) return null;
+
 			const located = locateEmbedToken(sectionLines, src, occurrence);
 			if (!located) return null;
 			const absLine = info.lineStart + located.lineOffset;
@@ -176,15 +219,17 @@ export class ReadingModeController {
 			const change = apply(lines);
 			if (!change) {
 				new Notice(ABORT_NOTICE);
-				return;
+				return false;
 			}
-			if (change.newToken === lines[change.line]?.slice(change.start, change.end)) return;
+			if (change.newToken === lines[change.line]?.slice(change.start, change.end)) {
+				return false; // nothing to write
+			}
 			editor.replaceRange(
 				change.newToken,
 				{ line: change.line, ch: change.start },
 				{ line: change.line, ch: change.end },
 			);
-			return;
+			return true;
 		}
 
 		// Atomic read-modify-write; verification happens INSIDE the
@@ -209,7 +254,7 @@ export class ReadingModeController {
 		if (failed) new Notice(ABORT_NOTICE);
 		// Obsidian re-renders changed blocks on vault modification; the
 		// overlay's inline styles keep the visual size stable meanwhile.
-		void changed;
+		return changed;
 	}
 
 	private findSourceEditor(path: string): Editor | null {

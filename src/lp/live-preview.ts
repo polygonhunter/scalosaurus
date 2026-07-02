@@ -29,7 +29,7 @@ export function buildLivePreviewExtension(
 }
 
 class LivePreviewResize implements PluginValue {
-	private readonly controller: EmbedHoverController;
+	private controller: EmbedHoverController;
 	/** Target captured at pointerdown, for the pointerup sanity check. */
 	private captured: LpTarget | null = null;
 
@@ -37,8 +37,13 @@ class LivePreviewResize implements PluginValue {
 		private readonly view: EditorView,
 		private readonly getSettings: () => ScalosaurusSettings,
 	) {
-		this.controller = new EmbedHoverController({
-			doc: view.dom.ownerDocument,
+		this.controller = this.buildController(view.dom.ownerDocument);
+	}
+
+	private buildController(doc: Document): EmbedHoverController {
+		const view = this.view;
+		return new EmbedHoverController({
+			doc,
 			owns: (embedEl) => view.contentDOM.contains(embedEl),
 			// Inert in Source Mode — images only render in Live Preview.
 			isEnabled: () => view.state.field(editorLivePreviewField, false) === true,
@@ -60,6 +65,14 @@ class LivePreviewResize implements PluginValue {
 	}
 
 	update(update: ViewUpdate): void {
+		// Moving a pane into a popout window adopts the editor DOM into a
+		// NEW document without re-instantiating this ViewPlugin — rebuild
+		// the controller so its delegated listeners live on the right doc.
+		const doc = this.view.dom.ownerDocument;
+		if (doc !== this.controller.document) {
+			this.controller.destroy();
+			this.controller = this.buildController(doc);
+		}
 		// Re-glue the overlay after edits/scrolling. scheduleReposition works
 		// via requestAnimationFrame, so no layout reads inside this update.
 		if (update.docChanged || update.viewportChanged || update.geometryChanged) {
@@ -71,19 +84,20 @@ class LivePreviewResize implements PluginValue {
 		this.controller.destroy();
 	}
 
-	private commit(embedEl: HTMLElement, size: SizeSpec): void {
+	/** Returns true only when the document was actually written. */
+	private commit(embedEl: HTMLElement, size: SizeSpec): boolean {
 		const captured = this.captured;
 		this.captured = null;
 
 		const fresh = resolveLpTarget(this.view, embedEl);
 		if (!fresh) {
 			new Notice(ABORT_NOTICE);
-			return;
+			return false;
 		}
 		const freshParsed = parseEmbed(fresh.text);
 		if (!freshParsed) {
 			new Notice(ABORT_NOTICE);
-			return;
+			return false;
 		}
 		// The token may legitimately differ from pointerdown (e.g. another
 		// actor tweaked the size mid-drag) — but it must still be the same
@@ -92,19 +106,20 @@ class LivePreviewResize implements PluginValue {
 			const capturedParsed = parseEmbed(captured.text);
 			if (capturedParsed && capturedParsed.path.trim() !== freshParsed.path.trim()) {
 				new Notice(ABORT_NOTICE);
-				return;
+				return false;
 			}
 		}
 
 		const newToken = withSize(fresh.text, size, {
 			escapePipes: freshParsed.escapedPipes || lineLooksLikeTableRow(fresh.lineText),
 		});
-		if (newToken === null || newToken === fresh.text) return;
+		if (newToken === null || newToken === fresh.text) return false;
 
 		// Single dispatch = one undo step; selection maps automatically.
 		this.view.dispatch({
 			changes: { from: fresh.from, to: fresh.to, insert: newToken },
 			userEvent: "input.scalosaurus-resize",
 		});
+		return true;
 	}
 }

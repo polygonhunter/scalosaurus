@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { locateEmbedToken } from "../src/reading/resolve-reading";
+import { countEmbedTokens, locateEmbedToken } from "../src/reading/resolve-reading";
 
 const lines = [
 	"# Heading",
@@ -41,5 +41,45 @@ describe("locateEmbedToken", () => {
 	it("handles escaped-pipe tokens in tables", () => {
 		const t = locateEmbedToken(["| a | ![[dino.png\\|150]] |"], "dino.png", 0);
 		expect(t?.text).toBe("![[dino.png\\|150]]");
+	});
+
+	it("skips tokens inside inline code (the wrong-token-write scenario)", () => {
+		const line = "Type `![[dino.png]]` to embed it: ![[dino.png]]";
+		const t = locateEmbedToken([line], "dino.png", 0);
+		expect(t?.start).toBe(line.lastIndexOf("![[dino.png]]"));
+	});
+
+	it("skips tokens inside %% comments (commented-out duplicate)", () => {
+		const line = "%%![[dino.png|200]]%% here is the real one: ![[dino.png|200]]";
+		const t = locateEmbedToken([line], "dino.png", 0);
+		expect(t?.start).toBe(line.lastIndexOf("![[dino.png|200]]"));
+	});
+
+	it("skips tokens inside fenced code blocks", () => {
+		const t = locateEmbedToken(
+			["```", "![[dino.png]]", "```", "![[dino.png]]"],
+			"dino.png",
+			0,
+		);
+		expect(t?.lineOffset).toBe(3);
+	});
+});
+
+describe("countEmbedTokens", () => {
+	it("counts only rendered tokens", () => {
+		expect(
+			countEmbedTokens(
+				[
+					"Type `![[dino.png]]` here: ![[dino.png]]",
+					"%%![[dino.png]]%%",
+					"![[dino.png]] and ![[other.png]]",
+				],
+				"dino.png",
+			),
+		).toBe(2);
+	});
+
+	it("returns 0 for markdown-syntax images (no wikilink token)", () => {
+		expect(countEmbedTokens(["![alt](dino.png)"], "dino.png")).toBe(0);
 	});
 });

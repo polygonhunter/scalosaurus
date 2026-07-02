@@ -97,6 +97,16 @@ describe("reduceDrag — snap hysteresis", () => {
 		expect(s.width).toBe(700);
 	});
 
+	it("does not oscillate when out-threshold < in-threshold (clamped)", () => {
+		const c = cfg({ snap: { enabled: true, inThreshold: 32, outThreshold: 8 } });
+		let s = step(c, initialDragState(c), 270); // proposed 670 >= 668 → snap
+		expect(s.snapped).toBe(true);
+		s = step(c, s, 275); // proposed 675, inside in-zone → must STAY snapped
+		expect(s.snapped).toBe(true);
+		s = step(c, s, 267); // proposed 667 < 700-33? no: 667 < 668 → released
+		expect(s.snapped).toBe(false);
+	});
+
 	it("never snaps when disabled or without a column", () => {
 		const off = cfg({ snap: { enabled: false, inThreshold: 12, outThreshold: 20 } });
 		expect(step(off, initialDragState(off), 295).snapped).toBe(false);
