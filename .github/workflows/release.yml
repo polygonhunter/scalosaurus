@@ -30,8 +30,10 @@ jobs:
           npm ci
           npm run build
 
+      # v1 produced Sigstore 0.2.1 bundles that current verifiers reject;
+      # v4 emits the current bundle format.
       - name: Attest build provenance for the release assets
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             main.js
