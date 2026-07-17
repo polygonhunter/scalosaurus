@@ -1,9 +1,9 @@
 {
 	"id": "scalosaurus",
 	"name": "Scalosaurus",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"minAppVersion": "1.12.4",
 	"description": "Resize embedded images right in the editor — drag handles, aspect-lock, and magnetic snap to your column width, with the new size written straight back into the link.",
-	"author": "Maximilian Rarbach",
+	"author": "polygonhunter",
 	"isDesktopOnly": false
 }
