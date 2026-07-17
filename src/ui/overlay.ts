@@ -101,8 +101,9 @@ export class ResizeOverlay {
 		this.doc = embedEl.ownerDocument;
 		this.win = this.doc.defaultView ?? activeWindow;
 
-		this.root = this.doc.createElement("div");
-		this.root.className = "scalosaurus-overlay";
+		// body.createDiv creates the element in the body's own document, so
+		// the overlay stays correct inside pop-out windows.
+		this.root = this.doc.body.createDiv({ cls: "scalosaurus-overlay" });
 		this.frame = this.child("scalosaurus-frame");
 		this.guide = this.child("scalosaurus-guide");
 		this.readout = this.child("scalosaurus-readout");
@@ -121,8 +122,6 @@ export class ResizeOverlay {
 				this.callbacks.onReset();
 			});
 		}
-		this.doc.body.appendChild(this.root);
-
 		// Keep the overlay glued to the image while scrolling/resizing.
 		this.listen(this.doc, "scroll", () => this.scheduleReposition(), {
 			capture: true,
@@ -134,10 +133,7 @@ export class ResizeOverlay {
 	}
 
 	private child(className: string): HTMLElement {
-		const el = this.doc.createElement("div");
-		el.className = className;
-		this.root.appendChild(el);
-		return el;
+		return this.root.createDiv({ cls: className });
 	}
 
 	private listen(
