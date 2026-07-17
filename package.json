@@ -1,6 +1,6 @@
 {
 	"name": "scalosaurus",
-	"version": "0.1.8",
+	"version": "0.1.9",
 	"description": "Resize embedded images with drag handles and write the size back into the wikilink, with snap-to-column-width.",
 	"main": "main.js",
 	"type": "module",

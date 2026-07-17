@@ -37,14 +37,34 @@ jobs:
           npm ci
           npm run build
 
-      # v1 produced Sigstore 0.2.1 bundles that current verifiers reject;
-      # v4 emits the current bundle format.
+      # Stamp the version into styles.css so every release's asset content —
+      # and therefore its digest — is unique. Byte-identical assets across
+      # releases share a digest, and the store then also finds the stale
+      # attestations of older releases for that digest.
+      - name: Stamp version into styles.css
+        run: |
+          VERSION=$(node -p "require('./manifest.json').version")
+          printf '/* Scalosaurus v%s */\n' "$VERSION" | cat - styles.css > styles.stamped.css
+          mv styles.stamped.css styles.css
+
+      # v1 emits the bundle format the store's verifier accepts (0.1.1 was
+      # verified green with v1 on 2026-07-02; the v4 bundles shipped with
+      # 0.1.7/0.1.8 failed store verification).
       - name: Attest build provenance for the release assets
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@v1
         with:
           subject-path: |
             main.js
             styles.css
+
+      # Gate: the release is only created if the attestations actually
+      # verify. A broken attestation must fail the workflow, not ship.
+      - name: Verify attestations before publishing
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh attestation verify main.js --repo "$GITHUB_REPOSITORY"
+          gh attestation verify styles.css --repo "$GITHUB_REPOSITORY"
 
       - name: Create or refresh the release
         env:
