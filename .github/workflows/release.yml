@@ -1,9 +1,16 @@
 name: Release Obsidian plugin
 
-# Manually triggered: builds the plugin and creates (or refreshes) the
-# GitHub release whose tag matches manifest.json's version, with the
-# main.js / manifest.json / styles.css assets Obsidian needs.
+# Builds the plugin and creates (or refreshes) the GitHub release whose tag
+# matches manifest.json's version, with the main.js / manifest.json /
+# styles.css assets Obsidian needs.
+#
+# Runs automatically on every push to main (project policy: every change
+# bumps the version, so every push produces a new release — see CLAUDE.md).
+# workflow_dispatch remains as a manual fallback/retry.
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
