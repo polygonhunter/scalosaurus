@@ -69,22 +69,24 @@ still use `\|` and the table must not break. Also check the native 1.12 bug
 escaping; adjust there. Fallback decision (plan §Edge-Cases): skip resize in
 tables with a Notice, defer to v2.
 
-## 5. ☐ Excalidraw embed DOM markers
+## 5. ☑ Excalidraw embed DOM (source-verified 2026-08-06, in-vault check open)
 
-**Assumption:** the Excalidraw plugin marks embedded drawings with
-`img.excalidraw-embedded-img` / `svg.excalidraw-svg` (or those class names on
-a wrapper); additionally, canonical `*.excalidraw` / `*.excalidraw.md` file
-targets are recognized via the embed's `src`. Scalosaurus attaches handles to
-those embeds (their `![[...]]` token lives in the current note, unlike true
-transclusions) and writes `|W` / `|WxH`; snapped commits write measured px
-because Excalidraw does not understand the `|100%` sentinel.
+**Verified against the plugin's `src/core/managers/MarkdownPostProcessor.ts`:**
+its post processor rewrites the `.internal-embed` container from
+`markdown-embed`/`inline-embed` to `media-embed image-embed` and renders,
+depending on the preview setting, an `<img>` (PNG/SVGIMG modes, class
+`excalidraw-embedded-img`, optionally `excalidraw-canvas-immersive`) or a
+native `<svg>` inside a wrapper div (SVG mode). Its alias parser accepts
+percentages (`/^(?<width>\d+%|\d+)(x(?<height>\d+%|\d+))?$/`), so
+`![[drawing|100%]]` is understood NATIVELY (img modes: `width: 100%`; SVG
+mode: `max-width`). Consequences implemented in `src/ui/attach.ts`:
+`<svg>`-in-image-embed is resizable, kind detection via markers/src, snap
+keeps the `|100%` sentinel (only `|fit` is mapped to `|100%` — non-numeric
+aliases would be misread as image style classes).
 
-**Check:** embed a drawing (`![[my drawing|1000]]`), hover it in Live Preview
-and Reading Mode: handles must appear and a drag must rewrite the token.
-Inspect the embed DOM and note the actual classes.
-
-**If it fails:** adjust `EXCALIDRAW_VISUAL_SELECTOR` in `src/ui/attach.ts`
-(one constant).
+**Remaining in-vault check:** hover an embedded drawing in both modes with
+each preview setting (PNG / SVGIMG / SVG): handles appear, drag rewrites the
+token, snapped drag writes `|100%` and stays responsive.
 
 ## Also worth recording during the spike
 

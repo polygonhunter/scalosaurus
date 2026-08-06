@@ -36,38 +36,52 @@ function asElement(target: EventTarget | null): Element | null {
 }
 
 /**
- * DOM markers the Excalidraw plugin puts on embedded drawings. Empirical —
- * see docs/findings.md (gate 5); adjust here if a plugin update renames them.
+ * DOM markers the Excalidraw plugin puts on embedded drawings (verified in
+ * its MarkdownPostProcessor: `setImgStyle` always adds
+ * "excalidraw-embedded-img"; the container itself is rewritten from
+ * markdown-embed to `media-embed image-embed`).
  */
-const EXCALIDRAW_VISUAL_SELECTOR =
-	"img.excalidraw-embedded-img, svg.excalidraw-svg, .excalidraw-embedded-img, .excalidraw-svg";
+const EXCALIDRAW_MARKER_SELECTOR =
+	".excalidraw-embedded-img, .excalidraw-svg, .excalidraw-canvas-immersive";
 
 function excalidrawSrc(embedEl: HTMLElement): boolean {
 	const src = (embedEl.getAttribute("src") ?? "").split("#")[0]?.trim().toLowerCase() ?? "";
 	return src.endsWith(".excalidraw") || src.endsWith(".excalidraw.md");
 }
 
+function isExcalidraw(embedEl: HTMLElement, visual: Element): boolean {
+	if (visual.matches(EXCALIDRAW_MARKER_SELECTOR)) return true;
+	if (embedEl.querySelector(EXCALIDRAW_MARKER_SELECTOR)) return true;
+	return excalidrawSrc(embedEl);
+}
+
 /**
  * Classify one `.internal-embed` container. Returns null when Scalosaurus
- * must not touch it. Transclusion rule: the embed itself may be a
- * markdown-embed (Excalidraw), but nothing ABOVE it may be one — an
- * enclosing `.markdown-embed` means the token lives in another file.
+ * must not touch it.
+ *
+ * Transclusion rule: nothing ABOVE the embed may be a `.markdown-embed` —
+ * an enclosing one means the token lives in another file. (Excalidraw
+ * rewrites its own container from markdown-embed to image-embed, so
+ * drawings pass this guard naturally.)
+ *
+ * Visual rule: images and Excalidraw's PNG/SVGIMG preview modes render an
+ * `<img>`; Excalidraw's native-SVG preview mode renders an `<svg>` inside
+ * the image-embed container instead — both are resizable.
  */
 export function classifyEmbed(embedEl: HTMLElement): EmbedHit | null {
 	if (embedEl.parentElement?.closest(".markdown-embed")) return null;
+	const isImageEmbed = embedEl.classList.contains("image-embed");
 
-	if (embedEl.classList.contains("image-embed")) {
-		const img = embedEl.querySelector("img");
-		if (!img || !img.isConnected) return null;
-		return { embedEl, visual: img, kind: "image" };
+	const img = embedEl.querySelector("img");
+	if (img?.isConnected) {
+		const excalidraw = isExcalidraw(embedEl, img);
+		if (!isImageEmbed && !excalidraw) return null;
+		return { embedEl, visual: img, kind: excalidraw ? "excalidraw" : "image" };
 	}
 
-	const marked = embedEl.querySelector<HTMLElement>(EXCALIDRAW_VISUAL_SELECTOR);
-	if (marked?.isConnected) return { embedEl, visual: marked, kind: "excalidraw" };
-
-	if (excalidrawSrc(embedEl)) {
-		const visual = embedEl.querySelector<HTMLElement>("svg, img");
-		if (visual?.isConnected) return { embedEl, visual, kind: "excalidraw" };
+	const svg = embedEl.querySelector("svg");
+	if (svg?.isConnected && (isImageEmbed || isExcalidraw(embedEl, svg))) {
+		return { embedEl, visual: svg as unknown as HTMLElement, kind: "excalidraw" };
 	}
 	return null;
 }
@@ -154,10 +168,12 @@ export class EmbedHoverController {
 		this.clear();
 		this.currentEmbed = hit.embedEl;
 		let options = this.adapter.getOptions();
-		if (hit.kind !== "image") {
-			// Non-image embeds don't render the responsive sentinel (the CSS
-			// targets image embeds' alt) — snapped commits write measured px.
-			options = { ...options, sentinelMode: "px" };
+		if (hit.kind === "excalidraw" && options.sentinelMode === "fit") {
+			// Excalidraw parses |100% natively (its dimension regex accepts
+			// percentages), so snapping stays responsive just like images.
+			// |fit is non-numeric though — Excalidraw would misread it as an
+			// image style class, so map it to the percent sentinel.
+			options = { ...options, sentinelMode: "percent" };
 		}
 		const callbacks: OverlayCallbacks = {
 			onDragStart: () => this.adapter.beginDrag(hit.embedEl, hit.visual),

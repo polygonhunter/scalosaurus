@@ -74,6 +74,7 @@ interface ActiveDrag {
 	unlocked: boolean;
 	previousInlineWidth: string;
 	previousInlineHeight: string;
+	previousInlineMaxWidth: string;
 }
 
 export class ResizeOverlay {
@@ -282,6 +283,7 @@ export class ResizeOverlay {
 			unlocked: isUnlockModifierHeld(e, this.options.unlockModifier),
 			previousInlineWidth: this.visual.style.width,
 			previousInlineHeight: this.visual.style.height,
+			previousInlineMaxWidth: this.visual.style.maxWidth,
 		};
 
 		const handle = this.handles.get(corner);
@@ -331,6 +333,9 @@ export class ResizeOverlay {
 
 		this.visual.style.width = `${drag.state.width}px`;
 		this.visual.style.height = `${drag.state.height}px`;
+		// Excalidraw's native-SVG preview sizes via max-width — without this
+		// override the drag preview would be clamped by the old size.
+		this.visual.style.maxWidth = `${drag.state.width}px`;
 		this.reposition();
 	}
 
@@ -378,6 +383,7 @@ export class ResizeOverlay {
 	private restoreInlineStyles(drag: ActiveDrag): void {
 		this.visual.style.width = drag.previousInlineWidth;
 		this.visual.style.height = drag.previousInlineHeight;
+		this.visual.style.maxWidth = drag.previousInlineMaxWidth;
 	}
 
 	private endDrag(): void {
