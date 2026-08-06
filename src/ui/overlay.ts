@@ -94,7 +94,7 @@ export class ResizeOverlay {
 
 	constructor(
 		private readonly embedEl: HTMLElement,
-		private readonly img: HTMLImageElement,
+		private readonly visual: HTMLElement,
 		private readonly options: OverlayOptions,
 		private readonly callbacks: OverlayCallbacks,
 	) {
@@ -160,9 +160,9 @@ export class ResizeOverlay {
 		return this.drag !== null;
 	}
 
-	/** Stale-overlay guard for the owner: is the image still in the DOM? */
-	get imgConnected(): boolean {
-		return this.img.isConnected;
+	/** Stale-overlay guard for the owner: is the visual still in the DOM? */
+	get visualConnected(): boolean {
+		return this.visual.isConnected;
 	}
 
 	/** Is this node part of the overlay? (Owner keeps us alive on hover.) */
@@ -185,11 +185,11 @@ export class ResizeOverlay {
 
 	reposition(): void {
 		if (this.destroyed) return;
-		if (!this.img.isConnected) {
+		if (!this.visual.isConnected) {
 			this.callbacks.onDetached();
 			return;
 		}
-		const rect = this.img.getBoundingClientRect();
+		const rect = this.visual.getBoundingClientRect();
 		this.place(this.frame, rect.left, rect.top, rect.width, rect.height);
 		this.placeHandle("nw", rect.left, rect.top);
 		this.placeHandle("ne", rect.right, rect.top);
@@ -241,7 +241,7 @@ export class ResizeOverlay {
 		if (e.button !== 0) return;
 		// Stale overlay (image re-rendered under us): don't consume the
 		// event — let the click land where the user aimed, and disappear.
-		if (!this.img.isConnected) {
+		if (!this.visual.isConnected) {
 			this.callbacks.onDetached();
 			return;
 		}
@@ -250,15 +250,18 @@ export class ResizeOverlay {
 		e.stopPropagation();
 		if (!this.callbacks.onDragStart()) return;
 
-		const rect = this.img.getBoundingClientRect();
+		const rect = this.visual.getBoundingClientRect();
 		if (!(rect.width > 0) || !(rect.height > 0)) return;
 		const column = measureContainingBlock(this.embedEl);
+		// Only <img> visuals expose natural dimensions; SVGs (Excalidraw)
+		// fall back to the rendered rect inside resolveAspectRatio.
+		const natural = this.visual as Partial<HTMLImageElement>;
 		const cfg: DragConfig = {
 			startWidth: rect.width,
 			startHeight: rect.height,
 			aspectRatio: resolveAspectRatio(
-				this.img.naturalWidth,
-				this.img.naturalHeight,
+				natural.naturalWidth ?? 0,
+				natural.naturalHeight ?? 0,
 				rect.width,
 				rect.height,
 			),
@@ -277,8 +280,8 @@ export class ResizeOverlay {
 			column,
 			moved: false,
 			unlocked: isUnlockModifierHeld(e, this.options.unlockModifier),
-			previousInlineWidth: this.img.style.width,
-			previousInlineHeight: this.img.style.height,
+			previousInlineWidth: this.visual.style.width,
+			previousInlineHeight: this.visual.style.height,
 		};
 
 		const handle = this.handles.get(corner);
@@ -306,7 +309,7 @@ export class ResizeOverlay {
 	private moveDrag(e: PointerEvent): void {
 		const drag = this.drag;
 		if (!drag || e.pointerId !== drag.pointerId) return;
-		if (!this.img.isConnected) {
+		if (!this.visual.isConnected) {
 			// Widget was recreated under us (external edit) — abort cleanly.
 			this.cancelDrag();
 			return;
@@ -326,8 +329,8 @@ export class ResizeOverlay {
 			unlocked: drag.unlocked,
 		});
 
-		this.img.style.width = `${drag.state.width}px`;
-		this.img.style.height = `${drag.state.height}px`;
+		this.visual.style.width = `${drag.state.width}px`;
+		this.visual.style.height = `${drag.state.height}px`;
 		this.reposition();
 	}
 
@@ -356,7 +359,7 @@ export class ResizeOverlay {
 			this.reposition();
 		} else if (typeof (result as Promise<boolean>)?.then === "function") {
 			void (result as Promise<boolean>).then((wrote) => {
-				if (!wrote && !this.destroyed && this.img.isConnected) {
+				if (!wrote && !this.destroyed && this.visual.isConnected) {
 					this.restoreInlineStyles(drag);
 					this.reposition();
 				}
@@ -373,8 +376,8 @@ export class ResizeOverlay {
 	}
 
 	private restoreInlineStyles(drag: ActiveDrag): void {
-		this.img.style.width = drag.previousInlineWidth;
-		this.img.style.height = drag.previousInlineHeight;
+		this.visual.style.width = drag.previousInlineWidth;
+		this.visual.style.height = drag.previousInlineHeight;
 	}
 
 	private endDrag(): void {

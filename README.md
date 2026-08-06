@@ -28,6 +28,9 @@ and only ever touches internal `![[image.png]]` embeds.
   so the same image embedded twice resizes independently.
 - **Stays out of your way.** Escape cancels a drag; double-click a handle to
   clear the size and reset.
+- **Excalidraw too.** Embedded Excalidraw drawings get the same handles —
+  drag instead of typing `|1000` by hand (snapped drags write pixels, since
+  the responsive token is an image-only trick).
 
 ## Good to know
 

@@ -37,7 +37,7 @@ import {
 } from "obsidian";
 import { lineLooksLikeTableRow, parseEmbed, withSize, type SizeSpec } from "../core/parse";
 import { snapConfigFrom, type ScalosaurusSettings } from "../settings";
-import { EmbedHoverController } from "../ui/attach";
+import { collectEligibleEmbeds, EmbedHoverController } from "../ui/attach";
 import type { OverlayOptions } from "../ui/overlay";
 import { countEmbedTokens, locateEmbedToken } from "./resolve-reading";
 
@@ -109,17 +109,15 @@ export class ReadingModeController {
 
 	/**
 	 * Rendered same-src embeds within the section, in DOM order — the DOM
-	 * side of the occurrence mapping. Trimmed comparison, matching how
-	 * pathMatchesSrc compares link targets on the source side.
+	 * side of the occurrence mapping. Uses the same eligibility rules as the
+	 * hover controller (images + Excalidraw drawings, transclusions
+	 * excluded); trimmed comparison, matching how pathMatchesSrc compares
+	 * link targets on the source side.
 	 */
 	private sectionCandidates(section: SectionContext, src: string): HTMLElement[] {
-		return Array.from(
-			section.sectionEl.querySelectorAll<HTMLElement>(".internal-embed.image-embed"),
-		).filter(
-			(el) =>
-				!el.closest(".markdown-embed") &&
-				(el.getAttribute("src") ?? "").trim() === src.trim(),
-		);
+		return collectEligibleEmbeds(section.sectionEl)
+			.map((hit) => hit.embedEl)
+			.filter((el) => (el.getAttribute("src") ?? "").trim() === src.trim());
 	}
 
 	/** Render-time section lines out of getSectionInfo's whole-file text. */
