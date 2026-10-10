@@ -27,10 +27,18 @@ and only ever touches internal `![[image.png]]` embeds.
   flicker, and it targets the exact image you dragged — never a filename guess —
   so the same image embedded twice resizes independently.
 - **Stays out of your way.** Escape cancels a drag; double-click a handle to
-  clear the size and reset.
+  clear the size and reset. Handles only appear where the link can really be
+  written, and they stay inside the note's pane.
+- **Exact sizes in two clicks.** Right-click (or long-press on touch) a
+  handle for **Fit to column**, **50%** / **33% of column**, **Original
+  size** or **Set width…**.
+- **Keyboard too.** The commands **Fit image to column** and **Reset image
+  size** act on the image link under the cursor (bind your own hotkeys).
+- **Undo everywhere.** Resizes in Live Preview are one undo step; in Reading
+  Mode without an open editor a short notice offers **Undo**.
 - **Excalidraw too.** Embedded Excalidraw drawings get the same handles —
-  drag instead of typing `|1000` by hand (snapped drags write pixels, since
-  the responsive token is an image-only trick).
+  drag instead of typing `|1000` by hand. Snapped drags write the responsive
+  `|100%`, which Excalidraw understands natively.
 
 ## Good to know
 
@@ -44,13 +52,18 @@ and only ever touches internal `![[image.png]]` embeds.
   in that other file.
 - On Obsidian 1.12+, the built-in corner-drag and Scalosaurus coexist; the
   plugin's handles take precedence where they appear.
+- On phones and tablets, tap an image to show the handles; long-press a
+  handle for the size menu (the reset gesture on touch).
+- In Live Preview, images inside rendered callouts and tables get no handles
+  yet — switch to Reading Mode (or edit the link) for those.
 
 ## Development
 
 ```bash
 npm install
 npm run dev    # watch build straight into test-vault/.obsidian/plugins/scalosaurus
-npm test       # unit tests (parser, drag reducer, token locator)
+npm test       # unit tests (parser, drag reducer, token locator, write plans)
+npm run lint   # Obsidian store lint (incl. minAppVersion API check)
 npm run build  # typecheck + production build (main.js at repo root)
 ```
 

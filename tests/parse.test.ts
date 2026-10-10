@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
 	findEmbedTokens,
 	lineLooksLikeTableRow,
+	lineIsInTable,
+	maskedLineInDocument,
+	linkTargetKind,
+	planCursorRewrite,
+	tokenAtCursor,
 	maskNonRenderedText,
 	parseEmbed,
 	pathMatchesSrc,
@@ -169,6 +174,21 @@ describe("lineLooksLikeTableRow", () => {
 		expect(lineLooksLikeTableRow("plain ![[x.png]]")).toBe(false);
 		expect(lineLooksLikeTableRow("|")).toBe(false);
 	});
+
+	it("detects table rows inside callouts and blockquotes", () => {
+		expect(lineLooksLikeTableRow("> | ![[a.png]] | x |")).toBe(true);
+		expect(lineLooksLikeTableRow(">| ![[a.png]] | x |")).toBe(true);
+		expect(lineLooksLikeTableRow("> > | ![[a.png]] | x |")).toBe(true);
+		expect(lineLooksLikeTableRow(">> | a | b |")).toBe(true);
+		expect(lineLooksLikeTableRow("> ![[a.png]] quoted")).toBe(false);
+		expect(lineLooksLikeTableRow("> [!note] title")).toBe(false);
+		expect(lineLooksLikeTableRow("> |")).toBe(false);
+	});
+
+	it("does not guess from a bare pipe in prose (DOM signal covers headless rows)", () => {
+		expect(lineLooksLikeTableRow("![[a.png]] | x")).toBe(false);
+		expect(lineLooksLikeTableRow("either A | B ![[a.png]]")).toBe(false);
+	});
 });
 
 describe("maskNonRenderedText", () => {
@@ -224,5 +244,107 @@ describe("maskNonRenderedText", () => {
 	it("does not mask regular text", () => {
 		const lines = ["plain ![[a.png|300]] text"];
 		expect(maskNonRenderedText(lines)).toEqual(lines);
+	});
+});
+
+describe("linkTargetKind", () => {
+	it("classifies by name", () => {
+		expect(linkTargetKind("a.png")).toBe("image");
+		expect(linkTargetKind("folder/Photo.JPEG#x")).toBe("image");
+		expect(linkTargetKind("Drawing.excalidraw")).toBe("excalidraw");
+		expect(linkTargetKind("Drawing.excalidraw.md")).toBe("excalidraw");
+		expect(linkTargetKind("Some note")).toBeNull();
+		expect(linkTargetKind("Some note#Heading")).toBeNull();
+		expect(linkTargetKind("paper.pdf")).toBeNull();
+	});
+});
+
+describe("tokenAtCursor / planCursorRewrite", () => {
+	const fit = () => ({ kind: "sentinel", token: "100%" }) as const;
+
+	it("finds the token under or touching the cursor", () => {
+		const line = "x ![[a.png|200]] y";
+		expect(tokenAtCursor(line, 2)?.text).toBe("![[a.png|200]]");
+		expect(tokenAtCursor(line, 16)?.text).toBe("![[a.png|200]]");
+		expect(tokenAtCursor(line, 0)).toBeNull();
+	});
+
+	it("ignores tokens in inline code", () => {
+		expect(tokenAtCursor("`![[a.png]]`", 3)).toBeNull();
+	});
+
+	it("rewrites the size of an image token", () => {
+		expect(planCursorRewrite("![[a.png|200]]", 3, fit)).toEqual({
+			start: 0,
+			end: 14,
+			newToken: "![[a.png|100%]]",
+		});
+		expect(planCursorRewrite("![[a.png|200]]", 3, () => ({ kind: "none" }))?.newToken).toBe(
+			"![[a.png]]",
+		);
+	});
+
+	it("escapes pipes in table rows", () => {
+		expect(planCursorRewrite("| ![[a.png]] |", 4, fit)?.newToken).toBe("![[a.png\\|100%]]");
+	});
+
+	it("skips note transclusions and no-ops", () => {
+		expect(planCursorRewrite("![[Some note]]", 3, fit)).toBeNull();
+		expect(planCursorRewrite("![[a.png|100%]]", 3, fit)).toBeNull();
+		expect(planCursorRewrite("![[a.png]]", 3, () => null)).toBeNull();
+	});
+});
+
+describe("lineIsInTable (keyboard path, no DOM signal)", () => {
+	it("detects rows without a leading pipe via the delimiter row", () => {
+		const doc = ["a | b", "--- | ---", "x | ![[x.png]]"];
+		expect(lineIsInTable(doc, 2)).toBe(true);
+		expect(lineIsInTable(doc, 0)).toBe(true);
+		expect(lineIsInTable(["![[a.png]] | text", "---|---"], 0)).toBe(true);
+	});
+
+	it("detects rows without a leading pipe inside a callout", () => {
+		const doc = ["> [!note]", "> a | b", "> :--|--:", "> ![[a.png]] | x"];
+		expect(lineIsInTable(doc, 3)).toBe(true);
+	});
+
+	it("leaves prose with a stray pipe alone", () => {
+		expect(lineIsInTable(["either A | B ![[a.png]]"], 0)).toBe(false);
+		expect(lineIsInTable(["text", "", "a | ![[x.png]]", "", "---"], 2)).toBe(false);
+		// Only the pipe inside the wikilink — not a table row.
+		expect(lineIsInTable(["![[a.png|200]]", "---|---"], 0)).toBe(false);
+	});
+
+	it("feeds planCursorRewrite so the inserted pipe is escaped", () => {
+		const fit = () => ({ kind: "sentinel", token: "100%" }) as const;
+		const doc = ["a | b", "--- | ---", "a | ![[x.png]]"];
+		expect(
+			planCursorRewrite(doc[2]!, 6, fit, { inTable: lineIsInTable(doc, 2) })?.newToken,
+		).toBe("![[x.png\\|100%]]");
+	});
+});
+
+describe("maskedLineInDocument (keyboard path, multi-line context)", () => {
+	const fit = () => ({ kind: "sentinel", token: "100%" }) as const;
+	const plan = (doc: string[], line: number, ch: number) =>
+		planCursorRewrite(doc[line]!, ch, fit, { maskedLine: maskedLineInDocument(doc, line) });
+
+	it("ignores embeds inside fenced code blocks", () => {
+		const doc = ["text", "```", "![[a.png]]", "```", "![[a.png]]"];
+		expect(plan(doc, 2, 3)).toBeNull();
+		expect(plan(doc, 4, 3)?.newToken).toBe("![[a.png|100%]]");
+	});
+
+	it("ignores embeds inside multi-line %% and HTML comments", () => {
+		expect(plan(["%%", "![[a.png]]", "%%"], 1, 3)).toBeNull();
+		expect(plan(["<!--", "![[a.png]]", "-->"], 1, 3)).toBeNull();
+	});
+
+	it("ignores the YAML frontmatter but not the body", () => {
+		const doc = ["---", "cover: ![[a.png]]", "---", "![[a.png]]"];
+		expect(plan(doc, 1, 9)).toBeNull();
+		expect(plan(doc, 3, 3)?.newToken).toBe("![[a.png|100%]]");
+		// A thematic break later in the body is not frontmatter.
+		expect(plan(["![[a.png]]", "---"], 0, 3)?.newToken).toBe("![[a.png|100%]]");
 	});
 });

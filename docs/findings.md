@@ -37,9 +37,10 @@ affordance DOM, note its class/structure. Then verify: (a) dragging *our*
 handles never triggers a native resize; (b) a native resize followed by a
 Scalosaurus resize leaves a single, well-formed size segment (parser dedup).
 
-**When pinned:** add a rule under `body.scalosaurus-suppress-native` at the
-bottom of `styles.css` hiding the native affordance, wired to the
-"Suppress native resize UI" setting (`src/native.ts`).
+**When pinned:** add a body-class-scoped rule at the bottom of `styles.css`
+hiding the native affordance, plus a setting that toggles the class. (The
+earlier unused plumbing — `src/native.ts` — was removed in 2026-10; the
+legacy `suppressNative` key in `data.json` is still accepted.)
 
 ## 3. ☐ Transclusion nesting — `.markdown-embed` ancestor
 
@@ -87,6 +88,21 @@ aliases would be misread as image style classes).
 **Remaining in-vault check:** hover an embedded drawing in both modes with
 each preview setting (PNG / SVGIMG / SVG): handles appear, drag rewrites the
 token, snapped drag writes `|100%` and stays responsive.
+
+## 6. ☐ Sentinel with caption — `![[img.png|Caption|100%]]`
+
+**Assumption:** with several alias segments Obsidian puts the whole alias
+into `alt` (`alt="Caption|100%"`), so the ends-with rules in `styles.css`
+(`[alt$="|100%"]`, `[alt$="|fit"]`) make captioned sentinel embeds
+responsive too. The pipe in the selector keeps captions like
+"scaled to 100%" from matching.
+
+**Check:** `test-vault/06 Edge cases.md` (both caption lines) in Live
+Preview and Reading Mode: inspect `alt`; the captioned sentinel tracks the
+column width, the "scaled to 100%" caption does not.
+
+**If it fails:** the extra selectors simply never match (no harm); drop them
+again. Users with caption plugins should then prefer `sentinelMode: px`.
 
 ## Also worth recording during the spike
 

@@ -3,6 +3,9 @@ import type { DragConfig, DragState } from "../src/core/session";
 import {
 	commitSize,
 	initialDragState,
+	readoutLabel,
+	parseWidthInput,
+	presetSize,
 	reduceDrag,
 	resolveAspectRatio,
 } from "../src/core/session";
@@ -169,5 +172,66 @@ describe("commitSize", () => {
 			width: 500,
 			height: 250,
 		});
+	});
+});
+
+describe("readoutLabel", () => {
+	const state = (width: number, height: number, snapped: boolean) => ({ width, height, snapped });
+
+	it("shows the sentinel that will be written when snapped", () => {
+		expect(readoutLabel(state(640, 480, true), { unlocked: false, sentinelMode: "percent" })).toBe("100%");
+		expect(readoutLabel(state(640, 480, true), { unlocked: false, sentinelMode: "fit" })).toBe("fit");
+		expect(readoutLabel(state(640, 480, true), { unlocked: false, sentinelMode: "px" })).toBe("640 px");
+	});
+
+	it("shows only the width when aspect-locked, W × H when unlocked", () => {
+		expect(readoutLabel(state(300, 200, false), { unlocked: false, sentinelMode: "percent" })).toBe("300");
+		expect(readoutLabel(state(300, 200, false), { unlocked: true, sentinelMode: "percent" })).toBe("300 × 200");
+	});
+});
+
+describe("presetSize", () => {
+	const opts = { sentinelMode: "percent" as const, minWidth: 32 };
+
+	it("fit writes the configured sentinel, or measured px in px mode", () => {
+		expect(presetSize("fit", 700, opts)).toEqual({ kind: "sentinel", token: "100%" });
+		expect(presetSize("fit", 700, { ...opts, sentinelMode: "fit" })).toEqual({
+			kind: "sentinel",
+			token: "fit",
+		});
+		expect(presetSize("fit", 700.4, { ...opts, sentinelMode: "px" })).toEqual({
+			kind: "width",
+			width: 700,
+		});
+	});
+
+	it("fractions are px of the column, floored at minWidth", () => {
+		expect(presetSize("half", 700, opts)).toEqual({ kind: "width", width: 350 });
+		expect(presetSize("third", 700, opts)).toEqual({ kind: "width", width: 233 });
+		expect(presetSize("third", 60, opts)).toEqual({ kind: "width", width: 32 });
+	});
+
+	it("original removes the size", () => {
+		expect(presetSize("original", null, opts)).toEqual({ kind: "none" });
+	});
+
+	it("returns null for column-based presets without a column", () => {
+		expect(presetSize("half", null, opts)).toBeNull();
+		expect(presetSize("fit", null, { ...opts, sentinelMode: "px" })).toBeNull();
+		expect(presetSize("fit", null, opts)).toEqual({ kind: "sentinel", token: "100%" });
+	});
+});
+
+describe("parseWidthInput", () => {
+	it("accepts plain and px-suffixed integers", () => {
+		expect(parseWidthInput("400")).toBe(400);
+		expect(parseWidthInput(" 400 px ")).toBe(400);
+		expect(parseWidthInput("250PX")).toBe(250);
+	});
+
+	it("rejects everything else", () => {
+		for (const bad of ["", "0", "-5", "4.5", "abc", "50%", "123456"]) {
+			expect(parseWidthInput(bad)).toBeNull();
+		}
 	});
 });

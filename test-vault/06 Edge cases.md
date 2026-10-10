@@ -16,3 +16,12 @@ Portrait image — aspect lock sanity:
 Heading subpath embed (not an image — must be ignored entirely):
 
 ![[01 Basics#Basics]]
+
+Caption plus sentinel (gate 6 in docs/findings.md) — must track the column
+width like a plain `|100%`, and the caption must not be lost on resize:
+
+![[dino.png|A caption|100%]]
+
+A caption that merely ends in "100%" must NOT stretch:
+
+![[dino.png|scaled to 100%]]

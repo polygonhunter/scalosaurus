@@ -35,13 +35,30 @@ import {
 	type MarkdownPostProcessorContext,
 	type MarkdownSectionInformation,
 } from "obsidian";
-import { lineLooksLikeTableRow, parseEmbed, withSize, type SizeSpec } from "../core/parse";
-import { snapConfigFrom, type ScalosaurusSettings } from "../settings";
-import { collectEligibleEmbeds, EmbedHoverController } from "../ui/attach";
-import type { OverlayOptions } from "../ui/overlay";
-import { countEmbedTokens, locateEmbedToken } from "./resolve-reading";
+import type { SizeSpec } from "../core/parse";
+import { overlayOptionsFrom, type ScalosaurusSettings } from "../settings";
+import { collectEligibleEmbeds, EmbedHoverController, embedInTable } from "../ui/attach";
+import {
+	linesSource,
+	planSectionRewrite,
+	plannedNoop,
+	revertLine,
+	scanEmbedTokens,
+	sliceLines,
+	type RewritePlan,
+	type SectionRewriteInput,
+} from "./resolve-reading";
 
 const ABORT_NOTICE = "Scalosaurus: could not safely locate the image link — not written.";
+
+const UNDO_NOTICE_MS = 6000;
+const UNDO_FAILED_NOTICE = "Scalosaurus: the image link changed since — nothing undone.";
+
+/** Show the abort notice; returns false for `return abort();`. */
+function abort(): false {
+	new Notice(ABORT_NOTICE);
+	return false;
+}
 
 interface SectionContext {
 	sectionEl: HTMLElement;
@@ -68,20 +85,15 @@ export class ReadingModeController {
 		this.controllers.set(
 			doc,
 			new EmbedHoverController({
+				app: this.app,
 				doc,
 				owns: (embedEl) =>
 					embedEl.closest(".markdown-preview-view") !== null &&
 					this.findSectionContext(embedEl) !== null,
 				isEnabled: () => this.getSettings().readingModeEnabled,
-				getOptions: (): OverlayOptions => {
-					const settings = this.getSettings();
-					return {
-						minWidth: settings.minWidth,
-						snap: snapConfigFrom(settings),
-						sentinelMode: settings.sentinelMode,
-						unlockModifier: settings.unlockModifier,
-					};
-				},
+				getOptions: () => overlayOptionsFrom(this.getSettings()),
+				// The pointerdown probe is side-effect free — reuse it.
+				canResize: (embedEl) => this.beginDrag(embedEl),
 				beginDrag: (embedEl) => this.beginDrag(embedEl),
 				commit: (embedEl, _img, size) => this.commit(embedEl, size),
 			}),
@@ -91,6 +103,11 @@ export class ReadingModeController {
 	unwireDocument(doc: Document): void {
 		this.controllers.get(doc)?.destroy();
 		this.controllers.delete(doc);
+	}
+
+	/** Drop visible overlays (workspace changed); drags are left alone. */
+	clearAll(keepWithin?: Element | null): void {
+		for (const controller of this.controllers.values()) controller.clearIfIdle(keepWithin);
 	}
 
 	destroy(): void {
@@ -122,16 +139,14 @@ export class ReadingModeController {
 
 	/** Render-time section lines out of getSectionInfo's whole-file text. */
 	private sectionLinesFromInfo(info: MarkdownSectionInformation): string[] | null {
-		const lines = info.text.split("\n");
-		if (info.lineStart < 0 || info.lineEnd >= lines.length) return null;
-		return lines.slice(info.lineStart, info.lineEnd + 1);
+		return sliceLines(info.text, info.lineStart, info.lineEnd);
 	}
 
 	/**
-	 * Fail-fast probe at pointerdown: abort before the user drags. Runs the
-	 * same occurrence/count invariants as the commit, against render-time
-	 * text — markdown-syntax images and untrustworthy sections never even
-	 * start a drag.
+	 * Fail-fast probe at pointerdown (and hover-time canResize): abort
+	 * before the user drags. Runs the same occurrence/count invariants as
+	 * the commit, against render-time text — markdown-syntax images and
+	 * untrustworthy sections never even start a drag. Side-effect free.
 	 */
 	private beginDrag(embedEl: HTMLElement): boolean {
 		const section = this.findSectionContext(embedEl);
@@ -143,89 +158,53 @@ export class ReadingModeController {
 		const sectionLines = this.sectionLinesFromInfo(info);
 		if (!sectionLines) return false;
 		const candidates = this.sectionCandidates(section, src);
-		if (candidates.indexOf(embedEl) < 0) return false;
-		return countEmbedTokens(sectionLines, src) === candidates.length;
+		const occurrence = candidates.indexOf(embedEl);
+		if (occurrence < 0) return false;
+		const scan = scanEmbedTokens(sectionLines, src, occurrence);
+		return scan.count === candidates.length && scan.located !== null;
 	}
 
 	/** Returns true only when the document was actually written. */
 	private async commit(embedEl: HTMLElement, size: SizeSpec): Promise<boolean> {
 		const section = this.findSectionContext(embedEl);
 		const src = embedEl.getAttribute("src");
-		if (!section || !src) {
-			new Notice(ABORT_NOTICE);
-			return false;
-		}
+		if (!section || !src) return abort();
 		// Fresh section info at write time — line numbers must reflect any
 		// edits made while the drag was in flight.
 		const info = section.ctx.getSectionInfo(section.sectionEl);
-		if (!info) {
-			new Notice(ABORT_NOTICE);
-			return false;
-		}
+		if (!info) return abort();
 		const renderLines = this.sectionLinesFromInfo(info);
-		if (!renderLines) {
-			new Notice(ABORT_NOTICE);
-			return false;
-		}
+		if (!renderLines) return abort();
 		const candidates = this.sectionCandidates(section, src);
 		const occurrence = candidates.indexOf(embedEl);
-		if (occurrence < 0) {
-			new Notice(ABORT_NOTICE);
-			return false;
-		}
-		const domCount = candidates.length;
+		if (occurrence < 0) return abort();
 
 		const file = this.app.vault.getAbstractFileByPath(section.ctx.sourcePath);
-		if (!(file instanceof TFile)) {
-			new Notice(ABORT_NOTICE);
-			return false;
-		}
+		if (!(file instanceof TFile)) return abort();
 
-		const apply = (
-			lines: readonly string[],
-		): { line: number; start: number; end: number; newToken: string } | null => {
-			if (info.lineEnd >= lines.length) return null;
-			const sectionLines = lines.slice(info.lineStart, info.lineEnd + 1);
-			// Invariant 2: the text we edit must equal the text that was
-			// rendered — otherwise the line window is stale.
-			if (sectionLines.length !== renderLines.length) return null;
-			for (let i = 0; i < sectionLines.length; i++) {
-				if (sectionLines[i] !== renderLines[i]) return null;
-			}
-			// Invariant 3: source count must mirror the DOM count.
-			if (countEmbedTokens(sectionLines, src) !== domCount) return null;
-
-			const located = locateEmbedToken(sectionLines, src, occurrence);
-			if (!located) return null;
-			const absLine = info.lineStart + located.lineOffset;
-			const lineText = lines[absLine] as string;
-			const parsed = parseEmbed(located.text);
-			if (!parsed) return null;
-			const newToken = withSize(located.text, size, {
-				escapePipes: parsed.escapedPipes || lineLooksLikeTableRow(lineText),
-			});
-			if (newToken === null) return null;
-			return { line: absLine, start: located.start, end: located.end, newToken };
+		const input: SectionRewriteInput = {
+			lineStart: info.lineStart,
+			lineEnd: info.lineEnd,
+			renderLines,
+			src,
+			occurrence,
+			domCount: candidates.length,
+			size,
+			inTable: embedInTable(embedEl),
 		};
 
 		// Route through an open source-mode editor of the same file when one
-		// exists: the resize then lands in that editor's undo history.
+		// exists: the resize then lands in that editor's undo history. Only
+		// the section window is read from the editor.
 		const editor = this.findSourceEditor(section.ctx.sourcePath);
 		if (editor) {
-			const lines: string[] = [];
-			for (let i = 0; i < editor.lineCount(); i++) lines.push(editor.getLine(i));
-			const change = apply(lines);
-			if (!change) {
-				new Notice(ABORT_NOTICE);
-				return false;
-			}
-			if (change.newToken === lines[change.line]?.slice(change.start, change.end)) {
-				return false; // nothing to write
-			}
+			const plan = planSectionRewrite(editor, input);
+			if (!plan) return abort();
+			if (plannedNoop(plan)) return false;
 			editor.replaceRange(
-				change.newToken,
-				{ line: change.line, ch: change.start },
-				{ line: change.line, ch: change.end },
+				plan.newToken,
+				{ line: plan.line, ch: plan.start },
+				{ line: plan.line, ch: plan.end },
 			);
 			return true;
 		}
@@ -233,26 +212,56 @@ export class ReadingModeController {
 		// Atomic read-modify-write; verification happens INSIDE the
 		// synchronous callback, against the data actually on disk.
 		let failed = false;
-		let changed = false;
+		let written: RewritePlan | null = null;
 		await this.app.vault.process(file, (data) => {
 			const lines = data.split("\n");
-			const change = apply(lines);
-			if (!change) {
+			const plan = planSectionRewrite(linesSource(lines), input);
+			if (!plan) {
 				failed = true;
 				return data;
 			}
-			const lineText = lines[change.line] as string;
-			const newLine =
-				lineText.slice(0, change.start) + change.newToken + lineText.slice(change.end);
-			if (newLine === lineText) return data;
-			changed = true;
-			lines[change.line] = newLine;
+			if (plannedNoop(plan)) return data;
+			const lineText = lines[plan.line] as string;
+			lines[plan.line] =
+				lineText.slice(0, plan.start) + plan.newToken + lineText.slice(plan.end);
+			written = plan;
 			return lines.join("\n");
 		});
 		if (failed) new Notice(ABORT_NOTICE);
+		if (written) this.offerUndo(file, written);
 		// Obsidian re-renders changed blocks on vault modification; the
 		// overlay's inline styles keep the visual size stable meanwhile.
-		return changed;
+		return written !== null;
+	}
+
+	/**
+	 * Writes via vault.process bypass every editor undo history — offer a
+	 * one-click undo for a few seconds instead.
+	 */
+	private offerUndo(file: TFile, plan: RewritePlan): void {
+		let notice: Notice | null = null;
+		const fragment = createFragment((f) => {
+			f.createSpan({ text: "Scalosaurus: image resized. " });
+			const button = f.createEl("button", { text: "Undo" });
+			button.addEventListener("click", () => {
+				notice?.hide();
+				void this.undo(file, plan);
+			});
+		});
+		notice = new Notice(fragment, UNDO_NOTICE_MS);
+	}
+
+	private async undo(file: TFile, plan: RewritePlan): Promise<void> {
+		let reverted = false;
+		await this.app.vault.process(file, (data) => {
+			const lines = data.split("\n");
+			const line = revertLine(lines[plan.line], plan);
+			if (line === null) return data;
+			lines[plan.line] = line;
+			reverted = true;
+			return lines.join("\n");
+		});
+		if (!reverted) new Notice(UNDO_FAILED_NOTICE);
 	}
 
 	private findSourceEditor(path: string): Editor | null {

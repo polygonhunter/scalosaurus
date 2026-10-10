@@ -133,10 +133,71 @@ export function commitSize(state: DragState, opts: CommitOptions): SizeSpec {
 		if (opts.sentinelMode === "px") {
 			return { kind: "width", width: state.width };
 		}
-		return { kind: "sentinel", token: SENTINEL_BY_MODE[opts.sentinelMode] };
+		// `?? "100%"`: never emit an empty segment (`![[a.png|]]`) even if an
+		// unknown mode slips past settings validation.
+		const token: SentinelToken | undefined = SENTINEL_BY_MODE[opts.sentinelMode];
+		return { kind: "sentinel", token: token ?? "100%" };
 	}
 	if (opts.unlocked) {
 		return { kind: "width-height", width: state.width, height: state.height };
 	}
 	return { kind: "width", width: state.width };
+}
+
+/**
+ * Drag readout text — shows what a release would actually write:
+ * snapped → `100%` / `fit` / `640 px`, aspect-locked → `640`,
+ * unlocked → `640 × 480` (so the lock state is visible too).
+ */
+export function readoutLabel(state: DragState, opts: CommitOptions): string {
+	const size = commitSize(state, opts);
+	switch (size.kind) {
+		case "sentinel":
+			return size.token;
+		case "width-height":
+			return `${size.width} × ${size.height}`;
+		case "width":
+			return state.snapped && !opts.unlocked ? `${size.width} px` : `${size.width}`;
+		case "none":
+			return "";
+	}
+}
+
+export type SizePreset = "fit" | "half" | "third" | "original";
+
+/**
+ * Size spec for a context-menu preset. `fit` follows the snapped-size
+ * format (sentinel, or measured px when the user opted out of sentinels);
+ * fractions are px of the measured column, never below `minWidth`.
+ * Returns null when the preset needs a column width that is unknown.
+ */
+export function presetSize(
+	preset: SizePreset,
+	columnWidth: number | null,
+	opts: { sentinelMode: SentinelMode; minWidth: number },
+): SizeSpec | null {
+	const col = columnWidth !== null && columnWidth > 0 ? columnWidth : null;
+	const px = (fraction: number): SizeSpec | null =>
+		col === null
+			? null
+			: { kind: "width", width: Math.max(opts.minWidth, Math.round(col * fraction)) };
+	switch (preset) {
+		case "original":
+			return { kind: "none" };
+		case "fit":
+			if (opts.sentinelMode === "px") return px(1);
+			return { kind: "sentinel", token: SENTINEL_BY_MODE[opts.sentinelMode] ?? "100%" };
+		case "half":
+			return px(1 / 2);
+		case "third":
+			return px(1 / 3);
+	}
+}
+
+/** Parse a user-typed width ("400", " 400 px "). Null when invalid. */
+export function parseWidthInput(raw: string): number | null {
+	const m = /^\s*(\d{1,5})\s*(?:px)?\s*$/i.exec(raw);
+	if (!m) return null;
+	const n = parseInt(m[1] as string, 10);
+	return n >= 1 ? n : null;
 }

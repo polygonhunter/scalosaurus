@@ -6,15 +6,18 @@
  * pointer and clears it when the pointer moves elsewhere.
  */
 
+import type { App } from "obsidian";
 import type { SizeSpec } from "../core/parse";
 import { ResizeOverlay, type OverlayCallbacks, type OverlayOptions } from "./overlay";
+import { openSizeMenu } from "./size-menu";
 
 /**
  * What kind of embed the handles are attached to. Excalidraw drawings are
  * markdown files whose embeds render as `.markdown-embed`, but unlike a
  * note transclusion their `![[...]]` token lives in the CURRENT file, so
- * resizing them is safe — they just don't understand the `|100%` sentinel
- * (snap writes measured px for them instead).
+ * resizing them is safe. Excalidraw parses `|100%` natively, so snapping
+ * writes `|100%` for them too; only the `|fit` sentinel is mapped to
+ * `|100%` (Excalidraw would misread it as a style class).
  */
 export type EmbedKind = "image" | "excalidraw";
 
@@ -50,9 +53,10 @@ function excalidrawSrc(embedEl: HTMLElement): boolean {
 }
 
 function isExcalidraw(embedEl: HTMLElement, visual: Element): boolean {
+	// Cheapest check first: an attribute read beats a subtree query.
+	if (excalidrawSrc(embedEl)) return true;
 	if (visual.matches(EXCALIDRAW_MARKER_SELECTOR)) return true;
-	if (embedEl.querySelector(EXCALIDRAW_MARKER_SELECTOR)) return true;
-	return excalidrawSrc(embedEl);
+	return embedEl.querySelector(EXCALIDRAW_MARKER_SELECTOR) !== null;
 }
 
 /**
@@ -86,13 +90,13 @@ export function classifyEmbed(embedEl: HTMLElement): EmbedHit | null {
 	return null;
 }
 
-/** Is this event target an embed Scalosaurus may resize? */
-export function eligibleEmbed(target: EventTarget | null): EmbedHit | null {
-	const el = asElement(target);
-	if (!el) return null;
-	const embedEl = el.closest<HTMLElement>(".internal-embed");
-	if (!embedEl) return null;
-	return classifyEmbed(embedEl);
+/**
+ * Rendered-DOM table signal: is this embed inside a table cell (Reading
+ * Mode `td`/`th`, Live Preview table widget)? ORed with the source-line
+ * heuristic to decide whether new pipes must be written as `\|`.
+ */
+export function embedInTable(embedEl: HTMLElement): boolean {
+	return embedEl.closest("td, th, .cm-table-widget") !== null;
 }
 
 /** All resizable embeds under a root, in DOM order (Reading Mode counting). */
@@ -106,12 +110,21 @@ export function collectEligibleEmbeds(root: ParentNode): EmbedHit[] {
 }
 
 export interface HoverAdapter {
+	/** For modals opened from the size menu. */
+	app: App;
 	/** Document to delegate on (per window — popout-safe). */
 	doc: Document;
 	/** Scope: does this controller own the given embed element? */
-	owns(embedEl: Element): boolean;
-	isEnabled(): boolean;
+	owns(embedEl: HTMLElement): boolean;
+	/** Is resizing active for this embed (mode/settings)? */
+	isEnabled(embedEl: HTMLElement): boolean;
 	getOptions(): OverlayOptions;
+	/**
+	 * Can the plugin actually write this embed's link right now? Checked
+	 * once per embed change; handles only appear when true (no dead
+	 * handles in popovers, canvas, unmappable sections, ...).
+	 */
+	canResize(embedEl: HTMLElement): boolean;
 	/** Fail-fast target resolution at pointerdown. False aborts the drag. */
 	beginDrag(embedEl: HTMLElement, visual: HTMLElement): boolean;
 	/**
@@ -156,12 +169,31 @@ export class EmbedHoverController {
 		// Pointer on our own handles/overlay: keep it.
 		if (el && this.overlay?.contains(el)) return;
 
-		const hit = eligibleEmbed(e.target);
-		if (hit && this.adapter.owns(hit.embedEl) && this.adapter.isEnabled()) {
-			if (this.currentEmbed !== hit.embedEl) this.show(hit);
+		// Hot path (every pointerover in the window): cheapest checks first,
+		// the subtree-querying classification only on an embed change.
+		const embedEl = el?.closest<HTMLElement>(".internal-embed") ?? null;
+		if (!embedEl) {
+			this.clear();
 			return;
 		}
-		this.clear();
+		if (embedEl === this.currentEmbed) return;
+		if (!this.adapter.isEnabled(embedEl) || !this.adapter.owns(embedEl)) {
+			this.clear();
+			return;
+		}
+		const hit = classifyEmbed(embedEl);
+		if (!hit) {
+			this.clear();
+			return;
+		}
+		if (!this.adapter.canResize(embedEl)) {
+			// Remember the embed anyway so the (non-trivial) probe does not
+			// rerun on every pointerover inside it; leaving it resets.
+			this.clear();
+			this.currentEmbed = embedEl;
+			return;
+		}
+		this.show(hit);
 	}
 
 	private show(hit: EmbedHit): void {
@@ -182,8 +214,12 @@ export class EmbedHoverController {
 				void this.adapter.commit(hit.embedEl, hit.visual, { kind: "none" });
 			},
 			onDetached: () => this.clear(),
+			onContextMenu: (e) => openSizeMenu(this.adapter.app, e, hit, options, this.adapter),
 		};
 		this.overlay = new ResizeOverlay(hit.embedEl, hit.visual, options, callbacks);
+		// Synchronous first placement (no one-frame flash at the wrong
+		// spot); may call onDetached → clear() right away (hidden image).
+		this.overlay.reposition();
 	}
 
 	/** Re-entrancy-safe (onDetached fires from inside overlay teardown). */
@@ -192,6 +228,18 @@ export class EmbedHoverController {
 		this.overlay = null;
 		this.currentEmbed = null;
 		overlay?.destroy();
+	}
+
+	/**
+	 * Workspace changed (active leaf, layout, mode): drop the overlay —
+	 * but never interrupt a drag in progress, and keep it when its embed
+	 * lies inside `keepWithin` (e.g. the leaf that just became active by
+	 * clicking/tapping that very image).
+	 */
+	clearIfIdle(keepWithin?: Element | null): void {
+		if (this.overlay?.isDragging) return;
+		if (keepWithin && this.currentEmbed && keepWithin.contains(this.currentEmbed)) return;
+		this.clear();
 	}
 
 	/** Owner saw a layout/doc change — re-glue the overlay to the image. */

@@ -5,66 +5,27 @@ import {
 	type Plugin,
 	type SettingDefinitionItem,
 } from "obsidian";
-import type { SentinelMode, SnapConfig } from "./core/session";
+import {
+	DEFAULT_SETTINGS,
+	sanitizeSettings,
+	SETTING_LIMITS,
+	type ScalosaurusSettings,
+} from "./core/settings-model";
 
-export type UnlockModifier = "shift" | "alt" | "ctrl" | "meta";
-
-export interface ScalosaurusSettings {
-	snapEnabled: boolean;
-	snapInThreshold: number;
-	snapOutThreshold: number;
-	/** What a snapped commit writes: |100%, |fit, or measured px (opt-out). */
-	sentinelMode: SentinelMode;
-	unlockModifier: UnlockModifier;
-	minWidth: number;
-	readingModeEnabled: boolean;
-	/** Suppress Obsidian's native (>= 1.12) corner-drag while our UI is up. */
-	suppressNative: boolean;
-}
-
-export const DEFAULT_SETTINGS: ScalosaurusSettings = {
-	snapEnabled: true,
-	snapInThreshold: 12,
-	snapOutThreshold: 20,
-	sentinelMode: "percent",
-	unlockModifier: "shift",
-	minWidth: 32,
-	readingModeEnabled: true,
-	suppressNative: true,
-};
-
-/** Snap config for the drag reducer, derived from settings. */
-export function snapConfigFrom(settings: ScalosaurusSettings): SnapConfig {
-	return {
-		enabled: settings.snapEnabled,
-		inThreshold: settings.snapInThreshold,
-		outThreshold: settings.snapOutThreshold,
-	};
-}
-
-/** Is the aspect-ratio unlock modifier held? Sampled per pointer event. */
-export function isUnlockModifierHeld(
-	e: { shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean },
-	modifier: UnlockModifier,
-): boolean {
-	switch (modifier) {
-		case "shift":
-			return e.shiftKey;
-		case "alt":
-			return e.altKey;
-		case "ctrl":
-			return e.ctrlKey;
-		case "meta":
-			return e.metaKey;
-	}
-}
+export {
+	DEFAULT_SETTINGS,
+	isUnlockModifierHeld,
+	overlayOptionsFrom,
+	sanitizeSettings,
+	snapConfigFrom,
+	type ScalosaurusSettings,
+	type UnlockModifier,
+} from "./core/settings-model";
 
 /** Structural host interface — avoids a settings.ts ↔ main.ts import cycle. */
 export interface SettingsHost extends Plugin {
 	settings: ScalosaurusSettings;
 	saveSettings(): Promise<void>;
-	/** Re-apply anything derived from settings (native suppression class). */
-	onSettingsChanged(): void;
 }
 
 export class ScalosaurusSettingTab extends PluginSettingTab {
@@ -79,10 +40,9 @@ export class ScalosaurusSettingTab extends PluginSettingTab {
 	// indexes them for the global settings search. display() below renders
 	// the same definitions imperatively as the pre-1.13 fallback.
 	//
-	// Note: `suppressNative` deliberately has no UI yet. The body class
-	// it toggles has no CSS rule until the native handle's selector is
-	// pinned (docs/findings.md, gate 2) — a visible toggle would be a
-	// no-op. Our handles already take precedence via stopPropagation.
+	// Note: there is deliberately no "suppress native resize" option until
+	// the native handle's selector is pinned (docs/findings.md, gate 2).
+	// Our handles already take precedence via stopPropagation.
 	getSettingDefinitions(): SettingDefinitionItem[] {
 		return [
 			{
@@ -114,9 +74,10 @@ export class ScalosaurusSettingTab extends PluginSettingTab {
 				control: {
 					type: "slider",
 					key: "snapInThreshold",
-					min: 4,
-					max: 32,
+					min: SETTING_LIMITS.snapInThreshold.min,
+					max: SETTING_LIMITS.snapInThreshold.max,
 					step: 1,
+					displayFormat: (v: number) => `${v} px`,
 					defaultValue: DEFAULT_SETTINGS.snapInThreshold,
 				},
 			},
@@ -126,9 +87,10 @@ export class ScalosaurusSettingTab extends PluginSettingTab {
 				control: {
 					type: "slider",
 					key: "snapOutThreshold",
-					min: 8,
-					max: 48,
+					min: SETTING_LIMITS.snapOutThreshold.min,
+					max: SETTING_LIMITS.snapOutThreshold.max,
 					step: 1,
+					displayFormat: (v: number) => `${v} px`,
 					defaultValue: DEFAULT_SETTINGS.snapOutThreshold,
 				},
 			},
@@ -148,9 +110,10 @@ export class ScalosaurusSettingTab extends PluginSettingTab {
 				control: {
 					type: "slider",
 					key: "minWidth",
-					min: 16,
-					max: 128,
+					min: SETTING_LIMITS.minWidth.min,
+					max: SETTING_LIMITS.minWidth.max,
 					step: 1,
+					displayFormat: (v: number) => `${v} px`,
 					defaultValue: DEFAULT_SETTINGS.minWidth,
 				},
 			},
@@ -171,9 +134,11 @@ export class ScalosaurusSettingTab extends PluginSettingTab {
 	}
 
 	async setControlValue(key: string, value: unknown): Promise<void> {
-		Object.assign(this.host.settings, { [key]: value });
+		// Validate the merged result: a control can never store a value
+		// that would later produce a malformed link.
+		const next = sanitizeSettings({ ...this.host.settings, [key]: value });
+		Object.assign(this.host.settings, next);
 		await this.host.saveSettings();
-		this.host.onSettingsChanged();
 	}
 
 	// Imperative fallback for Obsidian < 1.13.0 (minAppVersion allows 1.12.4);
