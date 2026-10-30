@@ -172,12 +172,21 @@ export class ScalosaurusSettingTab extends PluginSettingTab {
 					);
 					break;
 				case "slider":
-					setting.addSlider((slider) =>
+					setting.addSlider((slider) => {
+						// 1.12 sliders do not show their value (1.13 renders
+						// displayFormat inline) — show it next to the slider.
+						const format = control.displayFormat ?? String;
+						const valueEl = setting.controlEl.createSpan({
+							cls: "scalosaurus-slider-value",
+						});
+						const showValue = () => valueEl.setText(format(slider.getValue()));
 						slider
 							.setLimits(control.min, control.max, control.step)
 							.setValue(this.getControlValue(control.key) as number)
-							.onChange(commit),
-					);
+							.onChange(commit);
+						slider.sliderEl.addEventListener("input", showValue);
+						showValue();
+					});
 					break;
 			}
 		}

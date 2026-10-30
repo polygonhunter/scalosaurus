@@ -12,9 +12,7 @@ import { measureContainingBlock } from "../core/column";
 import type { SizeSpec } from "../core/parse";
 import { parseWidthInput, presetSize, type SizePreset } from "../core/session";
 import type { EmbedHit, HoverAdapter } from "./attach";
-import type { OverlayOptions } from "./overlay";
-
-const CANNOT_RESIZE_NOTICE = "Scalosaurus: this image can't be resized here.";
+import { CANNOT_RESIZE_NOTICE, type OverlayOptions } from "./overlay";
 
 export function openSizeMenu(
 	app: App,
@@ -28,7 +26,7 @@ export function openSizeMenu(
 			new Notice(CANNOT_RESIZE_NOTICE);
 			return;
 		}
-		await adapter.commit(hit.embedEl, hit.visual, size);
+		await adapter.commit(hit.embedEl, hit.visual, size, hit.kind);
 	};
 	// Measured now, while the embed is certainly laid out.
 	const column = measureContainingBlock(hit.embedEl)?.width ?? null;

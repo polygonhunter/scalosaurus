@@ -160,6 +160,21 @@ describe("planSectionRewrite", () => {
 		inTable: false,
 	};
 
+	it("writes the size first for Excalidraw embeds", () => {
+		const lines = ["![[d|200|left-wrap]]"];
+		const plan = planSectionRewrite(linesSource(lines), {
+			...base,
+			lineStart: 0,
+			lineEnd: 0,
+			renderLines: lines,
+			src: "d",
+			occurrence: 0,
+			domCount: 1,
+			sizeFirst: true,
+		});
+		expect(plan?.newToken).toBe("![[d|300|left-wrap]]");
+	});
+
 	it("plans a rewrite of the right occurrence", () => {
 		const plan = planSectionRewrite(linesSource(file), base);
 		expect(plan).toEqual({

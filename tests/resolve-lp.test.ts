@@ -78,6 +78,11 @@ describe("planLpRewrite", () => {
 		expect(planLpRewrite(null, target("![[a.png|300]]"), size, false).kind).toBe("noop");
 	});
 
+	it("writes the size first for Excalidraw embeds", () => {
+		const plan = planLpRewrite(null, target("![[d|200|left-wrap]]"), size, false, true);
+		expect(plan).toMatchObject({ insert: "![[d|300|left-wrap]]" });
+	});
+
 	it("escapes pipes for table rows and the DOM table signal", () => {
 		const inRow = planLpRewrite(null, target("![[a.png]]", "| ![[a.png]] |"), size, false);
 		expect(inRow).toMatchObject({ insert: "![[a.png\\|300]]" });

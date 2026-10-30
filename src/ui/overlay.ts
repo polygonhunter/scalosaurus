@@ -12,14 +12,17 @@
  *                  frame then runs reducer → inline img styles → ONE
  *                  layout read → overlay writes (no forced reflow per
  *                  event, and CM6 geometry updates share the same frame)
- *   pointerup    → map final state to a SizeSpec → callbacks.onCommit(...)
+ *   pointerup    → apply the release position and modifier state, map the
+ *                  final state to a SizeSpec → callbacks.onCommit(...)
  *                  (inline styles are intentionally KEPT: in Live Preview
  *                  the old widget DOM dies on the rewrite anyway; in
  *                  Reading Mode they prevent a visible snap-back until the
  *                  block re-renders)
- *   Escape / pointercancel → restore inline styles, no write
+ *   Escape / pointercancel / lost capture → restore inline styles, no write
  *   click without movement (< 3px) → no write
  *   double-click on a handle → callbacks.onReset() (remove the size param)
+ *   touch long-press without movement → callbacks.onContextMenu() (size
+ *                  menu; iOS fires no `contextmenu` on long-press)
  */
 
 import { Notice, Platform } from "obsidian";
@@ -83,7 +86,15 @@ const CORNERS = ["nw", "ne", "sw", "se"] as const;
 type Corner = (typeof CORNERS)[number];
 
 const CLICK_TOLERANCE_PX = 3;
-const CANNOT_RESIZE_NOTICE = "Scalosaurus: this image can't be resized here.";
+const LONG_PRESS_MS = 500;
+export const CANNOT_RESIZE_NOTICE = "Scalosaurus: this image can't be resized here.";
+/** Body class per corner: keeps the resize cursor for the whole drag. */
+const CURSOR_CLASSES: Record<Corner, string> = {
+	nw: "scalosaurus-resize-nwse",
+	se: "scalosaurus-resize-nwse",
+	ne: "scalosaurus-resize-nesw",
+	sw: "scalosaurus-resize-nesw",
+};
 const GUIDE_OVERSHOOT_PX = 16;
 /** Half of the 28px handle hit target (styles.css .scalosaurus-handle). */
 const HANDLE_HIT_HALF_PX = 14;
@@ -93,6 +104,9 @@ interface ActiveDrag {
 	pointerId: number;
 	startX: number;
 	startY: number;
+	/** Latest pointer position (re-applied when only a modifier changes). */
+	lastX: number;
+	lastY: number;
 	cfg: DragConfig;
 	state: DragState;
 	column: ColumnMetrics | null;
@@ -100,6 +114,8 @@ interface ActiveDrag {
 	unlocked: boolean;
 	/** Latest pointer input not yet applied (coalesced to one per frame). */
 	pendingInput: DragInput | null;
+	/** Pending touch long-press timer (0 = none). */
+	longPressTimer: number;
 	previousInlineWidth: string;
 	previousInlineHeight: string;
 	previousInlineMaxWidth: string;
@@ -121,6 +137,8 @@ export class ResizeOverlay {
 	private rafId = 0;
 	private fadeRafId = 0;
 	private destroyed = false;
+	/** A long-press opened the menu: swallow the native `contextmenu` that may follow. */
+	private longPressOpened = false;
 
 	private readonly domCleanups: Array<() => void> = [];
 	private dragCleanups: Array<() => void> = [];
@@ -141,7 +159,9 @@ export class ResizeOverlay {
 		this.guide = this.child("scalosaurus-guide");
 		this.readout = this.child("scalosaurus-readout");
 		this.clipEl = embedEl.closest<HTMLElement>(".cm-scroller, .markdown-preview-view");
-		const handleLabel = `Drag to resize · ${modifierLabel(options.unlockModifier)}: free ratio · Double-click: reset · Right-click: sizes`;
+		const handleLabel = Platform.isMobile
+			? "Drag to resize · Long-press: sizes"
+			: `Drag to resize · ${modifierLabel(options.unlockModifier)}: free ratio · Double-click: reset · Right-click: sizes`;
 		for (const corner of CORNERS) {
 			const handle = this.child("scalosaurus-handle");
 			handle.dataset.corner = corner;
@@ -160,6 +180,11 @@ export class ResizeOverlay {
 			this.listen(handle, "contextmenu", (e) => {
 				e.preventDefault();
 				e.stopPropagation();
+				if (this.longPressOpened) {
+					// Our long-press timer already opened the menu.
+					this.longPressOpened = false;
+					return;
+				}
 				// Touch long-press starts a drag first (pointerdown) — a
 				// press that has not moved is a menu request, not a resize.
 				if (this.drag) {
@@ -367,6 +392,7 @@ export class ResizeOverlay {
 	}
 
 	private startDrag(corner: Corner, e: PointerEvent): void {
+		this.longPressOpened = false;
 		if (this.drag || this.destroyed) return;
 		if (e.button !== 0) return;
 		// Stale or hidden overlay (image re-rendered under us, collapsed,
@@ -410,42 +436,81 @@ export class ResizeOverlay {
 			snap: this.options.snap,
 		};
 
-		this.drag = {
+		const handle = this.handles.get(corner);
+		try {
+			handle?.setPointerCapture(e.pointerId);
+		} catch {
+			// The pointer is no longer active (released meanwhile): no drag.
+			return;
+		}
+
+		const drag: ActiveDrag = {
 			corner,
 			pointerId: e.pointerId,
 			startX: e.clientX,
 			startY: e.clientY,
+			lastX: e.clientX,
+			lastY: e.clientY,
 			cfg,
 			state: initialDragState(cfg),
 			column,
 			moved: false,
 			unlocked: isUnlockModifierHeld(e, this.options.unlockModifier),
 			pendingInput: null,
+			longPressTimer: 0,
 			previousInlineWidth: this.visual.style.width,
 			previousInlineHeight: this.visual.style.height,
 			previousInlineMaxWidth: this.visual.style.maxWidth,
 		};
+		this.drag = drag;
 
-		const handle = this.handles.get(corner);
 		if (handle) {
-			handle.setPointerCapture(e.pointerId);
 			this.listenDuringDrag(handle, "pointermove", (ev) => this.moveDrag(ev as PointerEvent));
 			this.listenDuringDrag(handle, "pointerup", (ev) => this.finishDrag(ev as PointerEvent));
 			this.listenDuringDrag(handle, "pointercancel", () => this.cancelDrag());
+			// Capture lost without pointerup/pointercancel: never leave a
+			// stuck drag behind (global user-select:none, hover disabled).
+			this.listenDuringDrag(handle, "lostpointercapture", () => this.cancelDrag());
 		}
-		this.listenDuringDrag(
-			this.win,
-			"keydown",
-			(ev) => {
-				if ((ev as KeyboardEvent).key === "Escape") {
-					ev.preventDefault();
-					ev.stopPropagation();
-					this.cancelDrag();
-				}
-			},
-			{ capture: true },
-		);
-		this.doc.body.classList.add("scalosaurus-dragging");
+		const onKey = (ev: Event) => this.onDragKey(ev as KeyboardEvent);
+		this.listenDuringDrag(this.win, "keydown", onKey, { capture: true });
+		this.listenDuringDrag(this.win, "keyup", onKey, { capture: true });
+		if (e.pointerType === "touch") {
+			// Long-press = size menu (iOS fires no contextmenu on long-press).
+			drag.longPressTimer = window.setTimeout(() => this.openLongPressMenu(drag, e), LONG_PRESS_MS);
+		}
+		this.doc.body.classList.add("scalosaurus-dragging", CURSOR_CLASSES[corner]);
+	}
+
+	private onDragKey(ev: KeyboardEvent): void {
+		const drag = this.drag;
+		if (!drag) return;
+		if (ev.type === "keydown" && ev.key === "Escape") {
+			ev.preventDefault();
+			ev.stopPropagation();
+			this.cancelDrag();
+			return;
+		}
+		// Modifier pressed/released without moving: update the preview.
+		if (drag.moved && isUnlockModifierHeld(ev, this.options.unlockModifier) !== drag.unlocked) {
+			this.recordInput(drag, drag.lastX, drag.lastY, ev);
+			this.scheduleReposition();
+		}
+	}
+
+	private openLongPressMenu(drag: ActiveDrag, e: PointerEvent): void {
+		drag.longPressTimer = 0;
+		if (this.drag !== drag || drag.moved) return;
+		this.cancelDrag();
+		this.longPressOpened = true;
+		this.callbacks.onContextMenu(e);
+	}
+
+	private clearLongPress(drag: ActiveDrag): void {
+		if (drag.longPressTimer !== 0) {
+			window.clearTimeout(drag.longPressTimer);
+			drag.longPressTimer = 0;
+		}
 	}
 
 	/**
@@ -456,28 +521,45 @@ export class ResizeOverlay {
 	private moveDrag(e: PointerEvent): void {
 		const drag = this.drag;
 		if (!drag || e.pointerId !== drag.pointerId) return;
+		this.recordInput(drag, e.clientX, e.clientY, e);
+		this.scheduleReposition();
+	}
 
-		const rawDx = e.clientX - drag.startX;
-		const rawDy = e.clientY - drag.startY;
-		if (Math.abs(rawDx) + Math.abs(rawDy) > CLICK_TOLERANCE_PX) drag.moved = true;
+	/** Record pointer position + modifier state as the pending input. */
+	private recordInput(
+		drag: ActiveDrag,
+		x: number,
+		y: number,
+		modifiers: { shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean },
+	): void {
+		drag.lastX = x;
+		drag.lastY = y;
+		const rawDx = x - drag.startX;
+		const rawDy = y - drag.startY;
+		if (!drag.moved && Math.abs(rawDx) + Math.abs(rawDy) > CLICK_TOLERANCE_PX) {
+			drag.moved = true;
+			// A real drag, not a long-press.
+			this.clearLongPress(drag);
+		}
 
 		// Sign-adjust so positive deltas always mean "grow".
 		const signX = drag.corner.includes("e") ? 1 : -1;
 		const signY = drag.corner.includes("s") ? 1 : -1;
-		drag.unlocked = isUnlockModifierHeld(e, this.options.unlockModifier);
+		drag.unlocked = isUnlockModifierHeld(modifiers, this.options.unlockModifier);
 		drag.pendingInput = {
 			dx: rawDx * signX,
 			dy: rawDy * signY,
 			unlocked: drag.unlocked,
 		};
-		this.scheduleReposition();
 	}
 
 	private finishDrag(e: PointerEvent): void {
 		const drag = this.drag;
 		if (!drag || e.pointerId !== drag.pointerId) return;
-		// Apply the last pending input synchronously so the commit writes the
-		// size the pointer actually reached, not the one of the last frame.
+		// Apply the release position and modifier state synchronously so the
+		// commit writes what the pointer and keys actually reached at release,
+		// not the state of the last frame.
+		this.recordInput(drag, e.clientX, e.clientY, e);
 		this.cancelFrame();
 		if (!this.flushPendingInput()) return;
 		this.endDrag();
@@ -534,10 +616,16 @@ export class ResizeOverlay {
 	}
 
 	private endDrag(): void {
+		const drag = this.drag;
 		this.drag = null;
+		if (drag) this.clearLongPress(drag);
 		for (const cleanup of this.dragCleanups) cleanup();
 		this.dragCleanups = [];
-		this.doc.body.classList.remove("scalosaurus-dragging");
+		this.doc.body.classList.remove(
+			"scalosaurus-dragging",
+			"scalosaurus-resize-nwse",
+			"scalosaurus-resize-nesw",
+		);
 		this.guide.classList.remove("is-active");
 		this.readout.classList.remove("is-active");
 	}

@@ -6,6 +6,7 @@
 
 import type { Editor, Plugin } from "obsidian";
 import { lineIsInTable, maskedLineInDocument, planCursorRewrite, type LinkTargetKind, type SizeSpec } from "./core/parse";
+import { sentinelModeFor } from "./core/session";
 import type { ScalosaurusSettings } from "./core/settings-model";
 
 type SizeFor = (kind: Exclude<LinkTargetKind, null>) => SizeSpec | null;
@@ -56,13 +57,11 @@ export function registerEditorCommands(
 		name: "Fit image to column",
 		editorCheckCallback: (checking, editor) =>
 			runAtCursor(editor, checking, (kind) => {
-				const mode = getSettings().sentinelMode;
+				const mode = sentinelModeFor(getSettings().sentinelMode, kind);
 				// Fixed-pixel mode needs a measured column — only possible
 				// with the rendered image (drag or size menu), not here.
 				if (mode === "px") return null;
-				// Excalidraw understands |100% but would misread |fit.
-				const token = kind === "excalidraw" || mode === "percent" ? "100%" : "fit";
-				return { kind: "sentinel", token };
+				return { kind: "sentinel", token: mode === "percent" ? "100%" : "fit" };
 			}),
 	});
 	plugin.addCommand({

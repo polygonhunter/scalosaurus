@@ -19,7 +19,7 @@ and only ever touches internal `![[image.png]]` embeds.
   Live Preview and Reading Mode.
 - **Proportions stay intact.** A locked aspect ratio writes a clean `|width` and
   lets Obsidian keep the height; hold **Shift** — even mid-drag — to size freely
-  as `|width x height`.
+  as `|WxH` (e.g. `|640x480`).
 - **Magnetic snap to your column.** Near the text-column edge the drag snaps
   (with a guide line) and writes a responsive `|100%` token that keeps tracking
   the column as the window, theme, or line width changes.

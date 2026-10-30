@@ -141,6 +141,14 @@
 	display: block;
 }
 
+/* Slider value next to the slider (settings fallback for Obsidian < 1.13). */
+.scalosaurus-slider-value {
+	min-width: 3.5em;
+	text-align: right;
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+}
+
 /* ------------------------------------------------------------------------
    Global drag state
    ------------------------------------------------------------------------ */
@@ -149,8 +157,16 @@ body.scalosaurus-dragging {
 	-webkit-user-select: none;
 }
 
-body.scalosaurus-dragging .scalosaurus-handle {
-	cursor: inherit;
+/* Keep the resize cursor for the whole drag, wherever the pointer is
+   (editor text would otherwise show its I-beam). */
+body.scalosaurus-dragging.scalosaurus-resize-nwse,
+body.scalosaurus-dragging.scalosaurus-resize-nwse * {
+	cursor: nwse-resize !important;
+}
+
+body.scalosaurus-dragging.scalosaurus-resize-nesw,
+body.scalosaurus-dragging.scalosaurus-resize-nesw * {
+	cursor: nesw-resize !important;
 }
 
 /* ------------------------------------------------------------------------

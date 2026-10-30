@@ -16,8 +16,8 @@
 
 import {
 	findEmbedTokens,
-	lineLooksLikeTableRow,
 	maskNonRenderedText,
+	needsEscapedPipes,
 	parseEmbed,
 	pathMatchesSrc,
 	withSize,
@@ -145,6 +145,8 @@ export interface SectionRewriteInput {
 	size: SizeSpec;
 	/** Rendered-DOM table signal (td/th). */
 	inTable: boolean;
+	/** Write the size as the first alias segment (Excalidraw embeds). */
+	sizeFirst?: boolean;
 }
 
 export interface RewritePlan {
@@ -199,7 +201,8 @@ export function planSectionRewrite(
 	if (!parsed) return null;
 	const lineText = sectionLines[located.lineOffset] as string;
 	const newToken = withSize(located.text, input.size, {
-		escapePipes: parsed.escapedPipes || input.inTable || lineLooksLikeTableRow(lineText),
+		escapePipes: needsEscapedPipes(parsed, lineText, input.inTable),
+		sizeFirst: input.sizeFirst,
 	});
 	if (newToken === null) return null;
 	return {

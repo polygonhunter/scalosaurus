@@ -116,18 +116,29 @@ function sizeSegment(size: SizeSpec): string | null {
 	}
 }
 
-/** Serialize a parsed embed back to token text. */
-export function serializeEmbed(embed: ParsedEmbed): string {
+/**
+ * Serialize a parsed embed back to token text. The size goes LAST by
+ * default (images: the `[alt$="|100%"]` sentinel CSS relies on it), or
+ * FIRST with `sizeFirst` — Excalidraw reads `|size|style` and drops a
+ * style class that precedes the size.
+ */
+export function serializeEmbed(embed: ParsedEmbed, sizeFirst = false): string {
 	const sep = embed.escapedPipes ? "\\|" : "|";
-	const parts = [embed.path, ...embed.segments];
 	const size = sizeSegment(embed.size);
-	if (size !== null) parts.push(size);
+	const parts =
+		size === null
+			? [embed.path, ...embed.segments]
+			: sizeFirst
+				? [embed.path, size, ...embed.segments]
+				: [embed.path, ...embed.segments, size];
 	return `![[${parts.join(sep)}]]`;
 }
 
 export interface WithSizeOptions {
 	/** Force `\|` separators (e.g. token sits in a table row). */
 	escapePipes?: boolean;
+	/** Write the size as the first alias segment (Excalidraw embeds). */
+	sizeFirst?: boolean;
 }
 
 /**
@@ -143,7 +154,7 @@ export function withSize(
 	if (!parsed) return null;
 	parsed.size = size;
 	if (options?.escapePipes) parsed.escapedPipes = true;
-	return serializeEmbed(parsed);
+	return serializeEmbed(parsed, options?.sizeFirst);
 }
 
 /**
@@ -170,6 +181,19 @@ const BLOCKQUOTE_PREFIX_RE = /^\s*(?:>\s?)*/;
 export function lineLooksLikeTableRow(lineText: string): boolean {
 	const trimmed = lineText.replace(BLOCKQUOTE_PREFIX_RE, "").trim();
 	return trimmed.startsWith("|") && trimmed.length > 1;
+}
+
+/**
+ * Must a rewrite of this token write its pipes escaped (`\|`)? When it
+ * already does, when a caller's signal says "table" (rendered td/th or
+ * lineIsInTable), or when its line looks like a table row.
+ */
+export function needsEscapedPipes(
+	parsed: ParsedEmbed,
+	lineText: string,
+	inTable: boolean,
+): boolean {
+	return parsed.escapedPipes || inTable || lineLooksLikeTableRow(lineText);
 }
 
 /** A GFM delimiter row (`---|:--:`, `| --- | --- |`), blockquote prefix stripped. */
@@ -395,7 +419,8 @@ export function planCursorRewrite(
 	const size = sizeFor(kind);
 	if (!size) return null;
 	const newToken = withSize(token.text, size, {
-		escapePipes: parsed.escapedPipes || context?.inTable === true || lineLooksLikeTableRow(lineText),
+		escapePipes: needsEscapedPipes(parsed, lineText, context?.inTable === true),
+		sizeFirst: kind === "excalidraw",
 	});
 	if (newToken === null || newToken === token.text) return null;
 	return { start: token.start, end: token.end, newToken };

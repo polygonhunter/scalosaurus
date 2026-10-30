@@ -12,7 +12,7 @@
 import type { EditorView } from "@codemirror/view";
 import {
 	findEmbedTokens,
-	lineLooksLikeTableRow,
+	needsEscapedPipes,
 	parseEmbed,
 	pathMatchesSrc,
 	withSize,
@@ -104,6 +104,7 @@ export function planLpRewrite(
 	fresh: LpTarget | null,
 	size: SizeSpec,
 	inTable: boolean,
+	sizeFirst = false,
 ): LpRewritePlan {
 	if (!fresh) return { kind: "abort" };
 	const freshParsed = parseEmbed(fresh.text);
@@ -115,7 +116,8 @@ export function planLpRewrite(
 		}
 	}
 	const insert = withSize(fresh.text, size, {
-		escapePipes: freshParsed.escapedPipes || inTable || lineLooksLikeTableRow(fresh.lineText),
+		escapePipes: needsEscapedPipes(freshParsed, fresh.lineText, inTable),
+		sizeFirst,
 	});
 	if (insert === null) return { kind: "abort" };
 	if (insert === fresh.text) return { kind: "noop" };

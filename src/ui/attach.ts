@@ -7,7 +7,8 @@
  */
 
 import type { App } from "obsidian";
-import type { SizeSpec } from "../core/parse";
+import { linkTargetKind, type SizeSpec } from "../core/parse";
+import { sentinelModeFor } from "../core/session";
 import { ResizeOverlay, type OverlayCallbacks, type OverlayOptions } from "./overlay";
 import { openSizeMenu } from "./size-menu";
 
@@ -47,16 +48,23 @@ function asElement(target: EventTarget | null): Element | null {
 const EXCALIDRAW_MARKER_SELECTOR =
 	".excalidraw-embedded-img, .excalidraw-svg, .excalidraw-canvas-immersive";
 
-function excalidrawSrc(embedEl: HTMLElement): boolean {
-	const src = (embedEl.getAttribute("src") ?? "").split("#")[0]?.trim().toLowerCase() ?? "";
-	return src.endsWith(".excalidraw") || src.endsWith(".excalidraw.md");
+/**
+ * First element matching `selector` that belongs to THIS embed — not to an
+ * embed nested inside it (e.g. a drawing or image inside a transcluded
+ * note, whose link lives in the other file).
+ */
+function ownElement(embedEl: HTMLElement, selector: string): Element | null {
+	for (const el of Array.from(embedEl.querySelectorAll(selector))) {
+		if (el.closest(".internal-embed") === embedEl) return el;
+	}
+	return null;
 }
 
 function isExcalidraw(embedEl: HTMLElement, visual: Element): boolean {
 	// Cheapest check first: an attribute read beats a subtree query.
-	if (excalidrawSrc(embedEl)) return true;
+	if (linkTargetKind(embedEl.getAttribute("src") ?? "") === "excalidraw") return true;
 	if (visual.matches(EXCALIDRAW_MARKER_SELECTOR)) return true;
-	return embedEl.querySelector(EXCALIDRAW_MARKER_SELECTOR) !== null;
+	return ownElement(embedEl, EXCALIDRAW_MARKER_SELECTOR) !== null;
 }
 
 /**
@@ -64,7 +72,8 @@ function isExcalidraw(embedEl: HTMLElement, visual: Element): boolean {
  * must not touch it.
  *
  * Transclusion rule: nothing ABOVE the embed may be a `.markdown-embed` —
- * an enclosing one means the token lives in another file. (Excalidraw
+ * an enclosing one means the token lives in another file — and nothing
+ * from an embed nested INSIDE it counts as its visual or marker. (Excalidraw
  * rewrites its own container from markdown-embed to image-embed, so
  * drawings pass this guard naturally.)
  *
@@ -76,14 +85,14 @@ export function classifyEmbed(embedEl: HTMLElement): EmbedHit | null {
 	if (embedEl.parentElement?.closest(".markdown-embed")) return null;
 	const isImageEmbed = embedEl.classList.contains("image-embed");
 
-	const img = embedEl.querySelector("img");
+	const img = ownElement(embedEl, "img");
 	if (img?.isConnected) {
 		const excalidraw = isExcalidraw(embedEl, img);
 		if (!isImageEmbed && !excalidraw) return null;
-		return { embedEl, visual: img, kind: excalidraw ? "excalidraw" : "image" };
+		return { embedEl, visual: img as HTMLElement, kind: excalidraw ? "excalidraw" : "image" };
 	}
 
-	const svg = embedEl.querySelector("svg");
+	const svg = ownElement(embedEl, "svg");
 	if (svg?.isConnected && (isImageEmbed || isExcalidraw(embedEl, svg))) {
 		return { embedEl, visual: svg as unknown as HTMLElement, kind: "excalidraw" };
 	}
@@ -136,6 +145,8 @@ export interface HoverAdapter {
 		embedEl: HTMLElement,
 		visual: HTMLElement,
 		size: SizeSpec,
+		/** Excalidraw writes the size as the first alias segment. */
+		kind: EmbedKind,
 	): boolean | Promise<boolean>;
 }
 
@@ -199,19 +210,13 @@ export class EmbedHoverController {
 	private show(hit: EmbedHit): void {
 		this.clear();
 		this.currentEmbed = hit.embedEl;
-		let options = this.adapter.getOptions();
-		if (hit.kind === "excalidraw" && options.sentinelMode === "fit") {
-			// Excalidraw parses |100% natively (its dimension regex accepts
-			// percentages), so snapping stays responsive just like images.
-			// |fit is non-numeric though — Excalidraw would misread it as an
-			// image style class, so map it to the percent sentinel.
-			options = { ...options, sentinelMode: "percent" };
-		}
+		const base = this.adapter.getOptions();
+		const options = { ...base, sentinelMode: sentinelModeFor(base.sentinelMode, hit.kind) };
 		const callbacks: OverlayCallbacks = {
 			onDragStart: () => this.adapter.beginDrag(hit.embedEl, hit.visual),
-			onCommit: (size) => this.adapter.commit(hit.embedEl, hit.visual, size),
+			onCommit: (size) => this.adapter.commit(hit.embedEl, hit.visual, size, hit.kind),
 			onReset: () => {
-				void this.adapter.commit(hit.embedEl, hit.visual, { kind: "none" });
+				void this.adapter.commit(hit.embedEl, hit.visual, { kind: "none" }, hit.kind);
 			},
 			onDetached: () => this.clear(),
 			onContextMenu: (e) => openSizeMenu(this.adapter.app, e, hit, options, this.adapter),

@@ -2,9 +2,14 @@
  * Column-width measurement. Measures the embed's actual containing block
  * (content box of its parent) instead of the global `--file-line-width`:
  * themes override the variable, and embeds inside callouts, blockquotes,
- * lists or table cells live in narrower containers — the snap guide and the
- * `|100%` sentinel (CSS `width: 100%`) both resolve against exactly this
+ * lists live in narrower containers — the snap guide and the `|100%`
+ * sentinel (CSS `width: 100%`) both resolve against exactly this
  * containing block, so guide, snap and rendering stay consistent.
+ *
+ * Table cells are the exception: a cell shrinks to fit its content (often
+ * the image itself), so its width would cap every drag at the current size
+ * and snap on any outward move. Inside a table the column is the block
+ * that contains the TABLE.
  *
  * Measured fresh at each drag start — no cache to go stale.
  */
@@ -18,7 +23,8 @@ export interface ColumnMetrics {
 }
 
 export function measureContainingBlock(embedEl: HTMLElement): ColumnMetrics | null {
-	const parent = embedEl.parentElement;
+	const cell = embedEl.closest("td, th");
+	const parent = cell ? cell.closest("table")?.parentElement : embedEl.parentElement;
 	if (!parent) return null;
 	// ownerDocument.defaultView, not the global window: popout-safe.
 	const win = embedEl.ownerDocument?.defaultView;

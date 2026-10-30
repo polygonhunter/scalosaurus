@@ -8,6 +8,7 @@ import {
 	planCursorRewrite,
 	tokenAtCursor,
 	maskNonRenderedText,
+	needsEscapedPipes,
 	parseEmbed,
 	pathMatchesSrc,
 	serializeEmbed,
@@ -140,6 +141,27 @@ describe("serializeEmbed / withSize round-trips", () => {
 
 	it("withSize removes the size entirely (double-click reset)", () => {
 		expect(withSize("![[img.png|300x200]]", { kind: "none" })).toBe("![[img.png]]");
+	});
+
+	it("withSize puts the size first for Excalidraw (style class survives)", () => {
+		const w400 = { kind: "width", width: 400 } as const;
+		const first = { sizeFirst: true };
+		// Excalidraw reads `|size|style`; a style before the size is lost.
+		expect(withSize("![[d.excalidraw|300|left-wrap]]", w400, first)).toBe(
+			"![[d.excalidraw|400|left-wrap]]",
+		);
+		expect(withSize("![[d.excalidraw|left-wrap|300]]", w400, first)).toBe(
+			"![[d.excalidraw|400|left-wrap]]",
+		);
+		expect(withSize("![[d.excalidraw|left-wrap]]", w400, first)).toBe(
+			"![[d.excalidraw|400|left-wrap]]",
+		);
+		expect(
+			withSize("![[d\\|300\\|left-wrap]]", { kind: "sentinel", token: "100%" }, first),
+		).toBe("![[d\\|100%\\|left-wrap]]");
+		expect(withSize("![[d|300|left-wrap]]", { kind: "none" }, first)).toBe(
+			"![[d|left-wrap]]",
+		);
 	});
 
 	it("withSize keeps table escaping", () => {
@@ -321,6 +343,25 @@ describe("lineIsInTable (keyboard path, no DOM signal)", () => {
 		expect(
 			planCursorRewrite(doc[2]!, 6, fit, { inTable: lineIsInTable(doc, 2) })?.newToken,
 		).toBe("![[x.png\\|100%]]");
+	});
+});
+
+describe("needsEscapedPipes", () => {
+	const parsed = (token: string) => parseEmbed(token)!;
+
+	it("escapes when the token, the caller or the line says table", () => {
+		expect(needsEscapedPipes(parsed("![[a.png\\|1]]"), "x", false)).toBe(true);
+		expect(needsEscapedPipes(parsed("![[a.png]]"), "x", true)).toBe(true);
+		expect(needsEscapedPipes(parsed("![[a.png]]"), "| ![[a.png]] |", false)).toBe(true);
+		expect(needsEscapedPipes(parsed("![[a.png]]"), "text ![[a.png]]", false)).toBe(false);
+	});
+});
+
+describe("planCursorRewrite for Excalidraw", () => {
+	it("writes the size as the first alias segment", () => {
+		const w = () => ({ kind: "width", width: 400 }) as const;
+		const line = "![[sketch.excalidraw|left-wrap]]";
+		expect(planCursorRewrite(line, 3, w)?.newToken).toBe("![[sketch.excalidraw|400|left-wrap]]");
 	});
 });
 

@@ -82,13 +82,18 @@ function clampWidth(cfg: DragConfig, width: number): number {
  * jitter at the boundary.
  */
 export function reduceDrag(cfg: DragConfig, prev: DragState, input: DragInput): DragState {
-	const proposedW = cfg.startWidth + input.dx;
-
 	if (input.unlocked) {
-		const width = Math.round(clampWidth(cfg, proposedW));
+		const width = Math.round(clampWidth(cfg, cfg.startWidth + input.dx));
 		const height = Math.round(Math.max(MIN_HEIGHT, cfg.startHeight + input.dy));
 		return { width, height, snapped: false };
 	}
+
+	// Aspect-locked: the dominant axis drives the size, so a mostly
+	// vertical drag (natural for portrait images) resizes too. A vertical
+	// delta is converted to the width change it implies.
+	const dyAsWidth = input.dy * cfg.aspectRatio;
+	const proposedW =
+		cfg.startWidth + (Math.abs(input.dx) >= Math.abs(dyAsWidth) ? input.dx : dyAsWidth);
 
 	let snapped = prev.snapped;
 	const col = cfg.columnWidth;
@@ -116,6 +121,15 @@ const SENTINEL_BY_MODE: Record<Exclude<SentinelMode, "px">, SentinelToken> = {
 	percent: "100%",
 	fit: "fit",
 };
+
+/**
+ * Effective sentinel mode for an embed kind. Excalidraw parses `|100%`
+ * natively (its dimension regex accepts percentages), but would misread
+ * the non-numeric `|fit` as an image style class — map it to `percent`.
+ */
+export function sentinelModeFor(mode: SentinelMode, kind: "image" | "excalidraw"): SentinelMode {
+	return kind === "excalidraw" && mode === "fit" ? "percent" : mode;
+}
 
 export interface CommitOptions {
 	/** Modifier state at release time. */

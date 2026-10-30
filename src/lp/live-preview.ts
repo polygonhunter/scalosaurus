@@ -16,7 +16,7 @@ import { ViewPlugin, type EditorView, type PluginValue, type ViewUpdate } from "
 import { editorLivePreviewField, Notice, type App } from "obsidian";
 import type { SizeSpec } from "../core/parse";
 import { overlayOptionsFrom, type ScalosaurusSettings } from "../settings";
-import { embedInTable, EmbedHoverController } from "../ui/attach";
+import { embedInTable, EmbedHoverController, type EmbedKind } from "../ui/attach";
 import { planLpRewrite, resolveLpTarget, type LpTarget } from "./resolve-lp";
 
 export const ABORT_NOTICE = "Scalosaurus: note changed during resize — not written.";
@@ -64,13 +64,13 @@ export function buildLivePreviewExtension(
 				getOptions: () => overlayOptionsFrom(getSettings()),
 				canResize: (embedEl) => ownerOf(views, embedEl)?.canResize(embedEl) === true,
 				beginDrag: (embedEl) => ownerOf(views, embedEl)?.beginDrag(embedEl) ?? false,
-				commit: (embedEl, _visual, size) => {
+				commit: (embedEl, _visual, size, kind) => {
 					const owner = ownerOf(views, embedEl);
 					if (!owner) {
 						new Notice(ABORT_NOTICE);
 						return false;
 					}
-					return owner.commit(embedEl, size);
+					return owner.commit(embedEl, size, kind);
 				},
 			});
 			entry = { controller, views };
@@ -156,11 +156,17 @@ class LivePreviewResize implements PluginValue {
 	}
 
 	/** Returns true only when the document was actually written. */
-	commit(embedEl: HTMLElement, size: SizeSpec): boolean {
+	commit(embedEl: HTMLElement, size: SizeSpec, kind: EmbedKind): boolean {
 		const captured = this.captured;
 		this.captured = null;
 		const fresh = resolveLpTarget(this.view, embedEl);
-		const plan = planLpRewrite(captured, fresh, size, embedInTable(embedEl));
+		const plan = planLpRewrite(
+			captured,
+			fresh,
+			size,
+			embedInTable(embedEl),
+			kind === "excalidraw",
+		);
 		if (plan.kind === "abort") {
 			new Notice(ABORT_NOTICE);
 			return false;

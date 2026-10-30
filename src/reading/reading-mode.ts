@@ -37,7 +37,12 @@ import {
 } from "obsidian";
 import type { SizeSpec } from "../core/parse";
 import { overlayOptionsFrom, type ScalosaurusSettings } from "../settings";
-import { collectEligibleEmbeds, EmbedHoverController, embedInTable } from "../ui/attach";
+import {
+	collectEligibleEmbeds,
+	EmbedHoverController,
+	embedInTable,
+	type EmbedKind,
+} from "../ui/attach";
 import {
 	linesSource,
 	planSectionRewrite,
@@ -95,7 +100,7 @@ export class ReadingModeController {
 				// The pointerdown probe is side-effect free — reuse it.
 				canResize: (embedEl) => this.beginDrag(embedEl),
 				beginDrag: (embedEl) => this.beginDrag(embedEl),
-				commit: (embedEl, _img, size) => this.commit(embedEl, size),
+				commit: (embedEl, _img, size, kind) => this.commit(embedEl, size, kind),
 			}),
 		);
 	}
@@ -115,13 +120,22 @@ export class ReadingModeController {
 		this.controllers.clear();
 	}
 
-	/** Walk up from the embed to the section element the post processor saw. */
+	/**
+	 * Walk up from the embed to the section element the post processor saw.
+	 * Nested renders (e.g. a callout body) can register an inner element
+	 * whose getSectionInfo is null — keep walking up to the first section
+	 * that can be mapped; fall back to the innermost one (which aborts).
+	 */
 	private findSectionContext(embedEl: Element): SectionContext | null {
+		let innermost: SectionContext | null = null;
 		for (let el: Element | null = embedEl; el; el = el.parentElement) {
 			const ctx = this.sections.get(el as HTMLElement);
-			if (ctx) return { sectionEl: el as HTMLElement, ctx };
+			if (!ctx) continue;
+			const section = { sectionEl: el as HTMLElement, ctx };
+			if (ctx.getSectionInfo(section.sectionEl)) return section;
+			innermost ??= section;
 		}
-		return null;
+		return innermost;
 	}
 
 	/**
@@ -165,7 +179,7 @@ export class ReadingModeController {
 	}
 
 	/** Returns true only when the document was actually written. */
-	private async commit(embedEl: HTMLElement, size: SizeSpec): Promise<boolean> {
+	private async commit(embedEl: HTMLElement, size: SizeSpec, kind: EmbedKind): Promise<boolean> {
 		const section = this.findSectionContext(embedEl);
 		const src = embedEl.getAttribute("src");
 		if (!section || !src) return abort();
@@ -191,6 +205,7 @@ export class ReadingModeController {
 			domCount: candidates.length,
 			size,
 			inTable: embedInTable(embedEl),
+			sizeFirst: kind === "excalidraw",
 		};
 
 		// Route through an open source-mode editor of the same file when one
@@ -213,20 +228,26 @@ export class ReadingModeController {
 		// synchronous callback, against the data actually on disk.
 		let failed = false;
 		let written: RewritePlan | null = null;
-		await this.app.vault.process(file, (data) => {
-			const lines = data.split("\n");
-			const plan = planSectionRewrite(linesSource(lines), input);
-			if (!plan) {
-				failed = true;
-				return data;
-			}
-			if (plannedNoop(plan)) return data;
-			const lineText = lines[plan.line] as string;
-			lines[plan.line] =
-				lineText.slice(0, plan.start) + plan.newToken + lineText.slice(plan.end);
-			written = plan;
-			return lines.join("\n");
-		});
+		try {
+			await this.app.vault.process(file, (data) => {
+				const lines = data.split("\n");
+				const plan = planSectionRewrite(linesSource(lines), input);
+				if (!plan) {
+					failed = true;
+					return data;
+				}
+				if (plannedNoop(plan)) return data;
+				const lineText = lines[plan.line] as string;
+				lines[plan.line] =
+					lineText.slice(0, plan.start) + plan.newToken + lineText.slice(plan.end);
+				written = plan;
+				return lines.join("\n");
+			});
+		} catch (error) {
+			// File deleted/renamed meanwhile, or the write itself failed.
+			console.error("Scalosaurus: resize write failed", error);
+			return abort();
+		}
 		if (failed) new Notice(ABORT_NOTICE);
 		if (written) this.offerUndo(file, written);
 		// Obsidian re-renders changed blocks on vault modification; the
@@ -253,14 +274,18 @@ export class ReadingModeController {
 
 	private async undo(file: TFile, plan: RewritePlan): Promise<void> {
 		let reverted = false;
-		await this.app.vault.process(file, (data) => {
-			const lines = data.split("\n");
-			const line = revertLine(lines[plan.line], plan);
-			if (line === null) return data;
-			lines[plan.line] = line;
-			reverted = true;
-			return lines.join("\n");
-		});
+		try {
+			await this.app.vault.process(file, (data) => {
+				const lines = data.split("\n");
+				const line = revertLine(lines[plan.line], plan);
+				if (line === null) return data;
+				lines[plan.line] = line;
+				reverted = true;
+				return lines.join("\n");
+			});
+		} catch (error) {
+			console.error("Scalosaurus: undo write failed", error);
+		}
 		if (!reverted) new Notice(UNDO_FAILED_NOTICE);
 	}
 

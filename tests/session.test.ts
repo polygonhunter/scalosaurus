@@ -8,6 +8,7 @@ import {
 	presetSize,
 	reduceDrag,
 	resolveAspectRatio,
+	sentinelModeFor,
 } from "../src/core/session";
 
 const cfg = (overrides: Partial<DragConfig> = {}): DragConfig => ({
@@ -56,6 +57,32 @@ describe("reduceDrag — locked", () => {
 		const s = step(c, initialDragState(c), 5000);
 		expect(s.width).toBe(700);
 		expect(s.snapped).toBe(false);
+	});
+});
+
+describe("reduceDrag — locked, dominant axis", () => {
+	it("resizes on a purely vertical drag (dy converted via the aspect ratio)", () => {
+		const c = cfg();
+		// dy 50 at aspect 2 → +100 width
+		expect(step(c, initialDragState(c), 0, 50)).toEqual({ width: 500, height: 250, snapped: false });
+		expect(step(c, initialDragState(c), 0, -50)).toEqual({ width: 300, height: 150, snapped: false });
+	});
+
+	it("lets the larger of dx and dy·ratio win", () => {
+		const c = cfg();
+		// dx 30 vs dy 20·2 = 40 → vertical wins
+		expect(step(c, initialDragState(c), 30, 20).width).toBe(440);
+		// dx -60 vs dy 10·2 = 20 → horizontal wins (shrinking still works)
+		expect(step(c, initialDragState(c), -60, 10).width).toBe(340);
+	});
+});
+
+describe("sentinelModeFor", () => {
+	it("maps fit to percent for Excalidraw only", () => {
+		expect(sentinelModeFor("fit", "excalidraw")).toBe("percent");
+		expect(sentinelModeFor("fit", "image")).toBe("fit");
+		expect(sentinelModeFor("px", "excalidraw")).toBe("px");
+		expect(sentinelModeFor("percent", "image")).toBe("percent");
 	});
 });
 
@@ -130,9 +157,10 @@ describe("reduceDrag — unlocked", () => {
 
 	it("re-locking mid-drag re-applies the aspect ratio", () => {
 		const c = cfg();
-		let s = step(c, initialDragState(c), 100, 300, true);
-		expect(s.height).toBe(500);
-		s = step(c, s, 100, 300, false);
+		// dx dominates (dy·ratio = 80 < 100), so the locked width is 500.
+		let s = step(c, initialDragState(c), 100, 40, true);
+		expect(s.height).toBe(240);
+		s = step(c, s, 100, 40, false);
 		expect(s).toEqual({ width: 500, height: 250, snapped: false });
 	});
 });
